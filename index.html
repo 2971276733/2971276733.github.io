@@ -98,6 +98,24 @@
     color:var(--accent); opacity:.85;
   }
 
+  /* ---------- 中文释义 ---------- */
+  .gloss{
+    margin-top:16px; min-height:24px;
+    display:flex; align-items:center; justify-content:center;
+    padding:0 16px; max-width:100%; overflow:hidden;
+    font-size:clamp(13px,1.15vw,15px); letter-spacing:.03em; color:#a9b2c7;
+    text-align:center; user-select:none;
+  }
+  /* 隐藏时保留占位，避免打字瞬间整页高度变化、键盘往下跳 */
+  .gloss[hidden]{ display:flex; visibility:hidden; }
+  .gloss span{
+    display:block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    transition:opacity .18s ease;
+  }
+  .gloss .gloss-word{
+    font-family:var(--mono); color:#6d768e; margin-right:10px; flex:none;
+  }
+
   /* ---------- 键盘 ---------- */
   .kbd{ display:flex; flex-direction:column; align-items:center; gap:var(--gap);
     margin:clamp(18px,4vh,40px) 0 0; user-select:none; -webkit-user-select:none; }
@@ -138,7 +156,7 @@
     background:#111520; border:1px solid #1c2130; color:#2f3646; text-transform:lowercase;
   }
   .letter.on{ background:var(--f); border-color:transparent; color:#0a0d14; font-weight:700; }
-  .tools{ display:flex; gap:8px; flex-wrap:wrap; }
+  .tools{ display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; }
   .tool{
     appearance:none; font-family:inherit; font-size:11.5px; letter-spacing:.02em;
     padding:7px 12px; border-radius:8px; cursor:pointer;
@@ -178,8 +196,12 @@
     <div class="stat"><div class="label">用时</div>
       <div class="value"><span id="s-time">0:00</span></div></div>
     <div class="stat grow">
-      <div class="label">等级 <b id="s-level">8</b>/26 · 最佳 <b id="s-best">0</b> wpm</div>
-      <div class="bar"><i id="lesson-bar"></i></div>
+      <div class="label">
+        <span id="lbl-grade">等级 <b id="s-level">8</b>/26</span>
+        <span id="lbl-vocab" hidden>词库 高考3500（<b id="s-vocab">0</b> 词）</span>
+        · 最佳 <b id="s-best">0</b> wpm
+      </div>
+      <div class="bar" id="bar-wrap"><i id="lesson-bar"></i></div>
     </div>
   </header>
 
@@ -187,16 +209,21 @@
     <div class="lines" id="lines"></div>
     <div class="hint" id="hint">
       <div class="hint-title">开始输入</div>
-      <div class="hint-sub">第一次按键开始计时 · 空格换词 · Esc 重开</div>
+      <div class="hint-sub">第一次按键开始计时 · 空格换词 · Tab 重听 · Esc 重开</div>
       <div class="hint-keys" id="hint-keys"></div>
     </div>
   </main>
+
+  <div class="gloss" id="gloss" hidden><span class="gloss-word" id="gloss-word"></span><span id="gloss-cn"></span></div>
 
   <section class="kbd" id="kbd" aria-hidden="true"></section>
 
   <footer class="foot">
     <div class="letters" id="letters" title="已解锁的字母"></div>
     <div class="tools">
+      <button class="tool" id="btn-mode" type="button">词库 高考3500</button>
+      <button class="tool" id="btn-gloss" type="button">释义</button>
+      <button class="tool" id="btn-voice" type="button">朗读</button>
       <button class="tool" id="btn-sound" type="button">声音</button>
       <button class="tool" id="btn-strict" type="button">严格模式</button>
       <button class="tool" id="btn-restart" type="button">重来 Esc</button>
@@ -221,31 +248,944 @@
   var SAVE_KEY       = 'dsh-typing-practice-v1';
 
   /* ================= 语料（用于 bigram 建模 + 真词） ================= */
-  var WORD_SRC = 'the of and a to in is you that it he was for on are as with his they at be this have from or ' +
-    'one had by but not what all were we when your can said there use an each which she do how their if will up ' +
-    'other about out many then them these so some her would make like him into time has look two more write go see ' +
-    'number no way could people my than first water been call who its now find long down day did get come made may ' +
-    'part over new sound take only little work know place year live me back give most very after thing our just ' +
-    'name good sentence man think say great where help through much before line right too mean old any same tell ' +
-    'boy follow came want show also around form three small set put end does another well large must big even such ' +
-    'because turn here why ask went men read need land different home us move try kind hand picture again change ' +
-    'off play spell air away animal house point page letter mother answer found study still learn should world ' +
-    'high every near add food between own below country plant last school father keep tree never start city eye ' +
-    'light thought head under story saw left few while along might close something seem next hard open example ' +
-    'begin life always those both paper together got group often run word book hear stop without second later ' +
-    'miss idea enough eat face watch far really almost let above girl sometimes mountain cut young talk soon list ' +
-    'song being leave family ' +
-    // 主行/简单短词：保证低等级也能打真词
-    'sad lad dad bad fad fads gas gal gala gals gag gags flag flags flak flask flask glass salad dash gash lash ' +
-    'hash jag jags slag glad skid skip kid kids keg key desk asks adds alls falls halls lasts lads dads jabs ' +
-    'gabs fabs sags sass lass lasses asks salad flashes';
-  var WORDS = (function () {
-    var seen = Object.create(null), out = [];
-    WORD_SRC.split(' ').forEach(function (w) {
-      if (w && !seen[w]) { seen[w] = 1; out.push(w); }
-    });
-    return out;
+  var DICT_SRC =
+    'abandon\tv.抛弃，舍弃，放弃\nability\tn. 能力；才能\nable\tadj. 能够；有能力的\nabnormal\tadj. 反常的，变态的\n' +
+    'aboard\tprep. 上（船，飞机，火车，汽车等）\nabolish\tv. 废除，废止\nabortion\tv. 人工流产，堕胎\n' +
+    'about\tadv. 大约；到处；四处 prep. 关于；在各处；四处\nabove\tprep. 在……上面 a. 上面的 ad. 在……之上\nabroad\tadv. 到（在）国外\n' +
+    'abrupt\tadj. 突然的，意外的，粗鲁\nabsence\tn. 不在，缺席\nabsent\tadj. 缺席， 不在\nabsolute\tadj. 完全，全部，绝对的\n' +
+    'absorb\tv. 吸收，使全神贯注\nabstract\tadj. / n. 抽象的（作品）\nabsurd\tadj. 荒谬的，怪诞不经的\n' +
+    'abundant\tadj. 大量,丰盛的,充裕的\nabuse\tv.（酗酒）滥用,虐待,恶语\nacademic\tadj. / n. 学术的，教学的\n' +
+    'academy\tn.专科学院,（美）私立学校\naccelerate\tv.（使）加速，加快\naccent\tn. 口音，音调\naccept\tvt. 接受\n' +
+    'access\tn. / v. 通道，入径，存取（计算机文件）\naccessible\tadj. 可到达的，可接受的，易相处的）\naccident\tn. 事故，意外的事\n' +
+    'accommodation\tn.住宿，膳宿\naccompany\tv. 陪同，陪伴，与…同时发生\naccomplish\tv. 完成\naccount\tn. 账目;描述\n' +
+    'accountant\tn. 会计，会计师\naccumulate\tv. 积累，积聚\naccuracy\tn. 准确，精确\naccuse\tv. 正确无误的,精确的\n' +
+    'accustomed\tadj. 习惯于,惯常的\nache\tvi.& n. 痛，疼痛\nachieve\tvt. 达到，取得\nachievement\tn. 成就,成绩,功绩\n' +
+    'acid\tadj. 酸的\nacknowledge\tv. 承认\nacquaintance\tn. 熟人，（与某人）认识\nacquire\tv. 获得，得到\n' +
+    'acquisition\tn. 获得，得到\nacre\tn. 英亩\nacross\tprep. 横过，穿过\nact\tn. 法令，条例 v. （戏）表演，扮演（角色），演出（戏…\n' +
+    'action\tn. 行动\nactive\tadj. 积极的，主动的\nactivity\tn. 活动\nactor\tn. 男演员\nactress\tn. 女演员\n' +
+    'actual\tadj. 实际的； 现实的\nacute\tadj. 十分严重的,（病）急性的\nad\tn. 公元\nadapt\tv. 使适应，适合，改编\n' +
+    'adaptation\tn. 适应，改编本\nadd\tvt.添加，增加\naddicted\tadj. 上瘾，成瘾，入迷\naddition\tn.增加;（算数用语）加\n' +
+    'address\tn. 地址\nadequate\tadj. 合适的，合乎需要的\nadjust\tv.调整,调节,适应,习惯\nadjustment\tn. 调整，适应\n' +
+    'administration\tn.管理,行政部门\nadmirable\tadj. 值得赞赏的,可钦佩的\nadmire\tv. 钦佩；羡慕\nadmission\tn. 准入, 接纳\n' +
+    'admit\tvt. 承认，准许（入场，入学，入会）\nadolescence\tn. 青春，青春期\nadolescent\tn. 青少年\nadopt\tv. 收养，领养\n' +
+    'adore\tv. （不用于进行时）热爱，爱慕某人\nadult\tn. 成年人\nadvance\tv. 推进，促进；前进\nadvantage\tn. 优点； 好处\n' +
+    'adventure\tn. 冒险； 奇遇\nadvertise\tvt. 为……做广告\nadvertisement\tn. 广告\nadvice\tn. 忠告，劝告，建议\n' +
+    'advise\tvt. 忠告，劝告，建议\nadvocate\tv. 拥护，支持，提倡\naeroplane\tn. (英)飞机\naffair\tn. 事，事情\n' +
+    'affect\tvt. 影响\naffection\tn. 喜爱，钟爱\nafford\tvt. 负担得起（……的费用）；抽得出（时间）；提供\nafraid\tadj. 害怕的；担心\n' +
+    'africa\tn. 非洲\nafrican\tadj. 非洲的，非洲人的 n. 非洲人\nafter\tr ad. 在后；后来prep. 在…之后；在 后面 co…\n' +
+    'afternoon\tn. 下午，午后\nafterward\tadv. 后来\nagain\tadv. 再一次；再，又\nagainst\tprep. 对着，反对\n' +
+    'age\tn. 年龄；时代\nagency\tn. 代理机构\nagenda\tn. （会议）议程表，议事日程\nagent\tn. 代理人，经济人\naggression\tn. 侵略\n' +
+    'aggressive\tadj. 侵略的；咄咄逼人\nago\tadv. 以前\nagree\tv. 同意；应允\nagreement\tn. 同意，一致；协定，协议\n' +
+    'agricultural\tadj. 农业的\nagriculture\tn. 农业，农学\nahead\tadv. 在前，向前\naid\tn. 援助；救护；辅助器具\n' +
+    'aids\tn. 艾滋病\naim\tn.目的；目标 v. 计划，打算；瞄准；针对\nair\tn. 空气；大气\naircraft\tn. 飞机 (单复数同)\n' +
+    'airline\tn. 航空公司；航空系统\nairmail\tn. 航空邮件\nairplane\tn. （美）飞机\nairport\tn. 航空站，飞机场\n' +
+    'airspace\tn.领空,（某国的）空域\nalarm\tn. 警报\nalbum\tn. 相册，影集，集邮簿\nalcohol\tn. 含酒精饮料，酒\n' +
+    'alcoholic\tadj. / n. 含酒精的，酒鬼\nalgebra\tn. 代数\nalike\tadv. 很相似地，同样地\nalive\tadj. 活着的，存在的\n' +
+    'all\tadv. 全部地 a. 全（部）;所有的;总;整 pron…\nallergic\tadj. 过敏的，厌恶\nalley\tn. 小巷，胡同\n' +
+    'allocate\tv. 拨给,划归,分配…给\nallow\tvt. 允许，准许\nallowance\tn. 津贴，补助\nalmost\tadv. 几乎，差不多\n' +
+    'alone\tadj. 单独的，孤独的\nalong\tadv. 向前；和…一起；一同 prep. 沿着；顺着\nalongside\tadv. 在…旁边,与…同时\n' +
+    'aloud\tadv. 大声地\nalphabet\tn. 字母表，字母\nalready\tadv. 已经\nalso\tadv. 也\n' +
+    'alternative\tadj. 可供替代,非传统的\nalthough\tconj. 虽然，尽管\naltitude\tn. 海拔高度\naltogether\tadv. 总共\n' +
+    'aluminium\tn. （化）铝\nalways\tadv. 总是；一直；永远\nam\tv. be的人称形式之一 \namateur\tadj. 业余爱好的\n' +
+    'amaze\tv. 惊奇，惊叹；震惊\namazing\tadj. 惊奇,惊叹的;震惊的\nambassador\tn.大使\nambiguous\tadj. 模棱两可的\n' +
+    'ambition\tn.目标,野心,雄心,抱负\nambulance\tn. 救护车\namerica\tn. 美国；美洲\namerican\tadj. 美国的；美国人的n. 美国人\n' +
+    'among\tprep. 在…中间；在（三个以上）之间\namount\tn. / v. 金额，数量，总计\nample\tadj. 足够的，丰裕的\n' +
+    'amuse\tvt. （使人）快乐，逗乐\namusement\tn. 娱乐\nanalysis\tn. 分析，分析结果\nanalyze\tv. 分析\n' +
+    'ancestor\tn. 祖宗； 祖先\nanchor\tv. / n. 锚，抛锚\nancient\tadj. 古代的，古老的\nand\tconj. 和；又；而\n' +
+    'anecdote\tn. 逸事，趣闻\nanger\tn. 怒，愤怒\nangle\tn. 角度\nangry\tadj. 生气的，愤怒的\nanimal\tn. 动物\n' +
+    'ankle\tn. 踝，踝关节\nanniversary\tn. 周年纪念日\nannounce\tvt. 宣布，宣告\nannouncement\tn. 通告，通知\n' +
+    'annoy\tvt. （使）烦恼\nannual\tadj. 每年的，年度的，一年一次的\nanother\tadj. 再一；另一；别的；不同的 pron. 另一个\n' +
+    'answer\tn.回答,答复;回信;答案 v.回答,答复;回信;（作出）…\nant\tn. 蚂蚁\nantarctic\tadj. 南极的\nantarctica\tn. 南极洲\n' +
+    'antique\tn. 古董\nanxiety\tn. 担忧，焦虑\nanxious\tadj. 忧虑的，焦急的\nany\tpron. （无论）哪一个；哪些 任何的；（用于疑问句、否…\n' +
+    'anybody\tpron. 任何人，无论谁\nanyhow\tadv. 不管怎样\nanyone\tpron. 任何人，无论谁\n' +
+    'anything\tpron. 什么事（物）；任何事（物）\nanyway\ty ad. 不管怎样\nanywhere\tadv. 任何地方\n' +
+    'apart\tad, / a. 相隔，相距，除外\napartment\tn. （美）楼中单元房，一套房间；房间\napologize\tvi. 道歉，谢罪\n' +
+    'apology\tn. 道歉；歉意\napparent\tadj. 显而易见\nappeal\tv. 上诉，申诉，吸引力\nappear\tvi. 出现\n' +
+    'appearance\tn. 出现，露面；容貌\nappendix\tn. 附录，阑尾\nappetite\tn. 食欲，胃口\napplaud\tv. / n. 鼓掌,赞许,赞赏\n' +
+    'apple\tn. 苹果\napplicant\tn. 申请人\napplication\tn. 申请\napply\tv. 申请\n' +
+    'appoint\tv. 任命，委任，安排，确定（时间，地点）\nappointment\tn. 约会\nappreciate\tv. 欣赏； 感激\n' +
+    'appreciation\tn. 欣赏,鉴定,评估\napproach\tn. / v. 靠近，接近，建议，要求\nappropriate\tadj. 合适的，恰当的\n' +
+    'approve\tv.赞成,同意,批准,通过\napproximately\tadv. 近似，大约\napril\tn. 4月\napron\tn. （机场的）停机坪\n' +
+    'arab\tadj. 阿拉伯的 n. 阿拉伯人\narabic\tadj. 阿拉伯语的 n. 阿拉伯语\narbitrary\tadj. 随心所欲的，独裁的，专断的\n' +
+    'arch\tn. 拱，拱门\narchitect\tn. 建筑师，设计师\narchitecture\tn.建筑学，建筑设计，风格\narctic\tadj. 北极的\n' +
+    'are\tv.(be) 是\narea\tn. 面积；地域，地方，区域；范围，领域\nargue\tvi. 争辩， 争论\nargument\tn. 争论，辩论\n' +
+    'arise\tvi. 起来，升起；出现\narithmetic\tn. 算术\narm\tn. 臂,支架 v. 以…装备,武装起来n. （美）武器,…\narmchair\tn. 扶手椅\n' +
+    'army\tn. 军队\naround\tadv. 在周围；在附近prep. 在……周围；大约\narrange\tv. 安排，布置\narrangement\tn. 安排，布置\n' +
+    'arrest\tv. 逮捕，拘留\narrival\tn. 到来，到达\narrive\tvi. 到达；达到\narrow\tn. 箭；箭头\nart\tn. 艺术，美术；技艺\n' +
+    'article\tn.文章;东西,物品;冠词\nartificial\tadj. 人工的，人造的\nartist\tn.艺术家\n' +
+    'as\tadv. & conj.像……一样；如同；因为 prep.…\nash\tn. 灰； 灰末\nashamed\tadj. 惭愧； 害臊\nasia\tn. 亚洲\n' +
+    'asian\tadj. 亚洲（人）的n. 亚洲人\naside\tadv. 在旁边\nask\tv. 问；请求，要求；邀请\nasleep\tadj. 睡着的，熟睡\n' +
+    'aspect\tn. 方面，外观，外表\nassess\tv.评价,评定（性质,质量）\nassessment\tn. 看法，评价\nassist\tv. 帮助，协助\n' +
+    'assistance\tn. 帮助，援助，支持\nassistant\tn. 助手，助理\nassociate\tv. 联想，联系\nassociation\tn. 协会，社团，联系\n' +
+    'assume\tv. 假定，假设\nassumption\tn. 假定，假设\nastonish\tvt. 使惊讶\nastronaut\tn. 宇航员\n' +
+    'astronomer\tn. 天文学家\nastronomy\tn. 天文学\nat\tprep.在（几点钟）;在（某处）\nathlete\tn. 运动员\n' +
+    'athletic\tadj. 健壮的,体育运动的\nathletics\tn. 田径\natlantic\tadj. 大西洋的\natmosphere\tn. 大气；气氛\n' +
+    'atom\tn. 原子，微粒\nattach\tv. 把…固定，重视\nattack\tvt. / n. 攻击，袭击\nattain\tv.（经过努力）获得,得到\n' +
+    'attempt\tvt. 试图，尝试\nattend\tv. 看护，照料，服侍；出席，参加\nattention\tn. 注意，关心\nattentively\tadv. 注意地\n' +
+    'attitude\tn. 态度，看法\nattract\tv. 吸引，引起\nattraction\tn. 吸引，爱慕\nattractive\tadj. 迷人的，有吸引力的\n' +
+    'audience\tn. 观众，听众\naugust\tn. 8月\naunt\tn. 伯母；舅母；婶；姑；姨\naustralia\tn. 澳洲；澳大利亚\n' +
+    'australian\tadj. 澳洲的，澳大利亚人的 n. 澳大利亚人\nauthentic\tadj. 真正的，真品的\nauthor\tn. 作者，作家\n' +
+    'authority\tn.权力,权威,威信,官方\nautomatic\tadj. 自动的，机械的\nautonomous\tadj. 自治的，自主的\nautumn\tn. 秋天，秋季\n' +
+    'available\tadj. 可获得的，有空的\navenue\tn. 大道\naverage\tadj. 平均；普通的 n.平均数\navoid\tv. 避免，躲开，逃避\n' +
+    'awake\tv. 唤醒 a. 醒着的\naward\tn. 奖品，奖励\naware\tadj. 知道，意识到，发觉\naway\tadv. 离开；远离\n' +
+    'awesome\tadj. 令人惊叹,很困难的\nawful\tadj. 很坏的，极讨厌的\nawkward\tadj. 令人尴尬,使人难堪的\nbaby\tn. 婴儿\n' +
+    'bachelor\tn. 未婚男子，单身汉\nback\tadv. 回（原处）；向后 a. 后面的 n. 背后，后部…\nbackache\tn. 背痛\n' +
+    'background\tn. 背景\nbackward\tadv. 向后\nbacon\tn. 咸猪肉；熏猪肉 \nbacterium\t(复bacteria) n. 细菌\n' +
+    'bad\tadj. 坏的；有害的，不利的；严重的\nbadly\tadv. 坏，恶劣地\nbadminton\tn. 羽毛球\nbag\tn. 书包；提包；袋子\n' +
+    'baggage\tn. 行李\nbake\tv. 烤； 烘（面包）\nbakery\tn. 面包店\nbalance\tn. 平衡\nbalcony\tn. 阳台；楼座\n' +
+    'ball\tn. 球 n. 舞会\nballet\tn. 芭蕾舞\nballoon\tn. 气球\nbamboo\tn. 竹\nban\tn. 禁令 v. 禁止；取缔\n' +
+    'banana\tn. 香蕉\nband\tn. 乐队\nbandage\tn. 绷带\nbang\tint. 砰\nbank\tn. （河海湖的）岸，堤 n. 银行\n' +
+    'bar\tn. 条（长方）块，棒，横木 n.（酒店的）买酒柜台；酒吧…\nbarbecue\tn. 烤肉野餐\nbarber\tn. （为男人理发）理发师\n' +
+    'barbershop\tn. 理发店\nbare\tadj. 裸露的，光秃秃的\nbargain\tn. （经讨价还价后）成交的商品；廉价货 v. 讨价还价\n' +
+    'bark\tv. 狗叫 n. 狗叫声\nbarrier\tn. 屏障，障碍，关卡\nbase\tn. 根据地，基地（棒球）垒\nbaseball\tn. 棒球\n' +
+    'basement\tn. 地下室\nbasic\tadj. 基本的\nbasin\tn. 水盆，脸盆\nbasis\tn. 原因，缘由，要素\nbasket\tn. 篮子\n' +
+    'basketball\tn. 篮球\nbat\tn. （棒球、板球的）球棒 n. 蝙蝠\nbath\tn. 洗澡；浴室；澡盆\nbathe\tvi. 洗澡；游泳\n' +
+    'bathrobe\tn. 浴衣\nbathroom\tn. 浴室，盥洗室\nbathtub\tn. 澡盆\nbattery\tn. 电池\nbattle\tn. 战斗；战役\n' +
+    'battleground\tn. 战场\nbay\tn. 湾； 海湾\nbc\tn. 公元前\nbe\tv. 是（原形）,其人称和时态形式有(am, is, ar…\n' +
+    'beach\tn. 海滨，海滩\nbeam\tn. 平衡木\nbean\tn. 豆，豆科植物\nbeancurd\tn. 豆腐\nbear\tv. 承受，负担，承担；忍受；容忍 n. 熊\n' +
+    'beard\tn. （下巴上的）胡须\nbeast\tn. 野兽；牲畜\nbeat\tv. 敲打；跳动；打赢 n. （音乐）节拍\nbeautiful\tadj. 美，美丽，美观的\n' +
+    'beauty\tn. 美丽，美人\nbecause\tconj. 因为\nbecome\tv. 变得；成为\nbed\tn. 床\nbedclothes\tn. 铺盖（被褥等）\n' +
+    'beddings\tn. 卧具，铺盖\nbedroom\tn. 寝室，卧室\nbee\tn.. 蜜蜂\nbeef\tn. 牛肉\nbeehive\tn. 蜂箱\nbeer\tn. 啤酒\n' +
+    'before\tprep. 在…以前；在…前面 ad. 以前 conj. …\nbeg\tv. 请求，乞求，乞讨 \nbegin\t v.开始,着手\n' +
+    'beginning\tn. 开始，开端\nbehalf\tn. 代表某人，为了某人\nbehave\tv. 守规矩，行为\nbehaviour\tn. 行为，举止\n' +
+    'behind\tprep. (表示位置)在…后面 ad. 在后面；向后\nbeing\tn. 物；生物；人\nbelgium\tn. 比利时\nbelief\tn. 信条，信念\n' +
+    'believe\tv. 相信，认为\nbell\tn. 钟,铃;钟(铃)声;钟形物\nbelly\tn. 肚子\nbelong\tvi. 属，附属\nbelow\tprep. 在……下面\n' +
+    'belt\tn. （皮）带\nbench\tn. 长凳；工作台\nbend\tvt. 使弯曲\nbeneath\tprep. 在…下方（面）\n' +
+    'beneficial\tadj. 有利的，有帮助的，有用的\nbenefit\tn. / v.优势,益处,使…受益\nbent\tadj. 弯的\n' +
+    'beside\tprep. 在…旁边；靠近\nbesides\tprep. 除…以外（还有） ad. 还有，此外\nbest\tadj. & ad.最好的；最好地，最 n. 最好的（人…\n' +
+    'betray\tv.出卖,泄露（机密）,辜负\nbetter\tadj. & ad. 较好的，更好的；好些； 更好地；更，…\nbetween\tprep. 在（两者）之间；在…中间\n' +
+    'beyond\tprep. (表示位置) 在…的那边\nbicycle\tn. 自行车\nbid\tv./ n. 出价，投标，向（某人）道别\nbig\tadj. 大的\n' +
+    'bill\tn.账单；法案，议案； （美）钞票，纸币\nbillion\tnum. 十亿，百亿\nbingo\tn. 宾戈游戏\nbiochemistry\tn. 生物化学\n' +
+    'biography\tn. 传记\nbiology\tn. 生物（学）\nbird\tn. 鸟\nbirdcage\tn. 鸟笼\nbirth\tn. 出生； 诞生\n' +
+    'birthday\tn. 生日\nbirthplace\tn. 出生地；故乡\nbiscuit\tn. 饼干\nbishop\tn. 主教\nbit\tn. 一点，一些，少量的\n' +
+    'bite\tv. 咬；叮\nbitter\tadj. 有苦味的；痛苦的，难过的；严酷的\nblack\tn. 黑色 a. 黑色的\nblackboard\tn. 黑板\n' +
+    'blame\tn.& v. 责备；责怪\nblank\tn.& a. 空格，空白（处）；空的；茫然无表情的\nblanket\tn. 毛毯，毯子\nbleed\tvi. 出血，流血\n' +
+    'bless\tvt. 保佑，降福\nblind\tadj. 瞎的\nblock\tn. 大块；（木、石等）块；街区；路障 vt. 阻塞；阻挡\nblood\tn. 血，血液\n' +
+    'blouse\tn. 宽罩衫；（妇女、儿童穿的）短上衣\nblow\tn. 击；打击\nblue\tn. 蓝色 a.蓝色的 a. 悲伤的；沮丧的\n' +
+    'board\tn. 木板；布告牌；委员会；（政府的）部 v. 上（船、火…\nboat\tn. 小船，小舟\nboating\tn. 划船（游玩），泛舟 body n. 身体\n' +
+    'boil\tv. 沸腾；烧开；煮……\nbomb\tn. 炸弹 v. 轰炸\nbond\tn. /v. 纽带，联系，使牢固\nbone\tn. 骨头，骨质（复数bones骨骼；骨骸）\n' +
+    'bonus\tn. 津贴，奖金，红利\nbook\tn. 书；本子 v. 预定，定（房间、车票等）\nbookcase\tn. 书橱\nbookmark\tn. 书签\n' +
+    'bookshelf\tn. 书架\nbookshop\tn. 书店\nbookstore\tn. 书店\nboom\tn. / v. 繁荣，轰鸣，激增\nboot\tn. 长统靴；靴\n' +
+    'booth\tn.岗；（为某种用途而设的）亭或小隔间\nborder\tn. 边缘；边境，国界\nbored\tadj. （对人，事）厌倦的，烦闷的\n' +
+    'boring\tadj. 乏味的，无聊的\nborn\tadj. 出生\nborrow\tv. （向别人）借用；借\nboss\tn. 领班；老板\n' +
+    'botanical\tadj. 植物学的\nbotany\tn. 植物； 植物学\nboth\tadj. 两；双 pron. 两者；双方\nbottle\tn. 瓶子\n' +
+    'bottom\tn. 底部；底\nbounce\tv. 弹起，蹦，上下晃动\nbound\tadj. 被束缚的；被绑的；有义务的 v.& n. 跳跃\nboundary\tn. 边界，界限\n' +
+    'bow\tv.& n. 鞠躬，弯腰行礼\nbowl\tn. 碗\nbowling\tn. 保龄球\nbox\tn. 盒子，箱子\nboxing\tn. 拳击（运动）\nboy\tn. 男孩\n' +
+    'boycott\tv. 拒绝购买，抵制\nbrain\tn. 脑（子）\nbrake\tn. 闸 vi. 刹车\nbranch\tn. 树枝；分枝；分公司，分店；支部\n' +
+    'brand\tn. 品牌\nbrave\tadj. 勇敢的\nbravery\tn. 勇气\nbread\tn. 面包\nbreak\tn. 间隙\nbreakfast\tn. 早餐\n' +
+    'breakthrough\tn. 重大进展，突破\nbreast\tn. 乳房，胸脯\nbreath\tn. 气息；呼吸\nbreathe\tvi. 呼吸\n' +
+    'breathless\tadj. 气喘吁吁的，上气不接下气的\nbrewery\tn. 啤酒厂（公司）\nbrick\tn. 砖；砖块\nbride\tn. 新娘\n' +
+    'bridegroom\tn. 新郎\nbridge\tn. 桥\nbrief\tadj. 简洁的\nbright\tadj. 明亮的；聪明的\n' +
+    'brilliant\tadj. 巧妙的，使人印象深刻的，技艺高的\nbring\tvt. 拿来，带来，取来\nbritain\tn. 英国；不列颠\n' +
+    'british\tadj. 英国的；大不列颠的；英国人的\nbroad\tadj. 宽的，宽大的\nbroadcast\tn. 广播节目\nbrochure\tn. 资料（或广告）手册\n' +
+    'broken\tadj. 弄坏了的\nbroom\tn. 扫帚\nbrother\tn. 兄；弟\nbrotherhood\tn. 兄弟般的关系\n' +
+    'brown\tn. 褐色，棕色 a. 褐色的，棕色的\nbrunch\tn. 早午饭（晚早饭）\nbrush\tv. 刷；擦 n. 刷子\nbucket\tn. 铲斗；桶\n' +
+    'buddhism\tn. 佛教\nbuddhist\tn. 佛教徒\nbudget\tn. 预算\nbuffet\tn. 自助餐\nbuild\tv. 建筑；造\n' +
+    'building\tn. 建筑物；房屋；大楼\nbun\tn. 馒头；小甜面包\nbunch\tn. 串,束,扎,大量,大批\nbungalow\tn. 平房\n' +
+    'burden\tn. （义务，责任的）重担，负担\nbureaucratic\tadj. 官僚的\nburglar\tn. 入室窃贼\nburial\tn. 埋葬\n' +
+    'burn\tv. 燃，烧，着火；使烧焦；使晒黑 n. 烧伤；晒伤\nburst\tv. 突然发生； 突然发作\nbury\tvt. 埋；葬\nbus\tn. 公共汽车\n' +
+    'bush\tn. 灌木丛，矮树丛\nbusiness\tn. （本分）工作，职业；职责；生意，交易；事业\nbusinessman\tn. 商人（男）；男企业家\n' +
+    'businesswoman\tn. 商人（女）；女企业家\nbusy\tadj. 忙（碌）的\nbut\tconj. 但是，可是 prep. 除了, 除……外\n' +
+    'butcher\tn. vt. 肉店；屠夫 屠宰（动物）；残杀（人）\nbutter\tn. 黄油，奶油\nbutterfly\tn. 蝴蝶\n' +
+    'button\tn. 纽扣；（电铃等的）按钮 v. 扣（纽扣） \nbuy\tvt. 买\nby\tprep. 靠近，在…旁；在…时间；不迟于；被；用；由；乘…\n' +
+    'bye\tint. 再见\ncab\tn. （美）出租车\ncabbage\tn. 卷心菜，洋白菜\ncafeteria\tn. 自助餐厅\ncage\tn 笼；鸟笼\n' +
+    'cake\tn. 蛋糕，糕点；饼\ncalculate\tv. 计算，核算，推测\ncall\tn. 喊，叫；电话，通话 v. 称呼；呼唤；喊，叫\n' +
+    'calm\tadj. 镇静,沉着的 v.镇静沉着\ncamel\tn. 骆驼\ncamera\tn. 照相机；摄像机\ncamp\tn.（夏令）营 vi.野营,宿营\n' +
+    'campaign\tn. 运动，战役\ncanada\tn. 加拿大\ncanadian\tadj. 加拿大的；加拿大人的 n. 加拿大人\ncanal\tn. 运河；水道\n' +
+    'cancel\tvt. 取消\ncancer\tr n. 癌\ncandidate\tn. 候选人，申请人\ncandle\tn. 蜡烛\ncandy\tn. 糖果\n' +
+    'canteen\tn. 餐厅；食堂\ncap\tn. （无檐的或仅在前面有檐的）帽子；（瓶子的）盖；（钢笔…\ncapital\tn.首都.省会.大写；资本\n' +
+    'capsule\tn. （药）胶囊\ncaptain\tn. （海军）上校；船长，舰长；队长\ncaption\tn. （图片，漫画等的）说明文字\ncar\tn. 汽车，小卧车\n' +
+    'carbon\tn. 碳\ncard\tn.卡片；名片；纸牌\ncare\tn. 照料，保护；小心v. 介意……，在乎；关心\ncareful\tadj. 小心，仔细，谨慎的\n' +
+    'careless\tadj. 粗心的，漫不经心的\ncarpenter\tn. 木工，木匠\ncarpet\tn. 地毯\ncarriage\tn. 四轮马车;（火车）客车厢\n' +
+    'carrier\tn. 搬运者；媒介;（自行车等的）置物架；（车的）货架\ncarrot\tn.胡萝卜\ncarry\tvt. 拿，搬，带，提，抬，背，抱，运等\n' +
+    'cartoon\tn. 动画片，卡通；漫画\ncarve\tvt.刻；雕刻\ncase\tn. 情况；病例；案件；真相 n. 箱；盒；容器\ncash\tn. 现金，现钞 v. 兑现\n' +
+    'cassette\tn. 磁带\ncast\tv. 扔，抛，撒\ncastle\tn. 城堡\ncasual\tadj. 漫不经心的，不经意的，非正式的\ncat\tn. 猫 \n' +
+    'catalogue\tn. 目录\ncatastrophe\tn. 灾难，灾祸，不幸事件\ncatch\tv. 接住；捉住；赶上；染上（疾病）\ncategory\tn. 类别，种类\n' +
+    'cater\tv. 提供饮食，承办酒席\ncathedral\tn. 大教堂（天主教）\ncatholic\tadj. 天主教的\ncattle\tn. 牛（总称），家畜\n' +
+    'cause\tn. 原因，起因 vt. 促使，引起，使发生\ncaution\tn. 谨慎，小心，警告\ncautious\tadj. 小心的，谨慎的\ncave\tn. 洞，穴；地窖\n' +
+    'cd\t光盘 (compact disk的缩写)\nceiling\tn. 天花板，顶棚\ncelebrate\tv. 庆祝\ncelebration\tn. 庆祝；庆祝会\n' +
+    'cell\tn.（监狱的）单人牢房；（修道院等的）单人小室；（蜂巢的）…\ncellar\tn. 地窖；地下储藏室\ncent\tn. 美分（100 cents = 1 dollar）\n' +
+    'centigrade\tadj. 摄氏的\ncentimetre\t(美 centimeter) n. 公分，厘米\ncentral\tadj. 中心，中央；主要的\n' +
+    'centre\tn. 中心，中央\ncentury\tn. 世纪，百年\nceremony\tn. 典礼，仪式，礼节\n' +
+    'certain\tadj. （未指明真实名称的）某…；确定的，无疑的；一定会…\ncertainly\tadv. 当然；一定，无疑\ncertificate\tn. 证明，证明书\n' +
+    'chain\tn. 链； 链条\nchair\tn. 椅子\nchairman\t(pl. chairmen) n. 主席，会长；议长\n' +
+    'chairwoman\tn. 女主席, 女会长；女议长\nchalk\tn. 粉笔\nchallenge\tn.挑战(性)\nchallenging\tadj. 具有挑战性的\n' +
+    'champion\tn. 冠军，优胜者\nchance\tn. 机会，可能性\nchange\tn. 零钱；找头v. 改变，变化；更换；兑换\n' +
+    'changeable\tadj. 易变的，变化无常的\nchannel\tn.频道；通道；水渠\nchant\tv./ n.反复呼喊\nchaos\tn. 混乱，杂乱，紊乱\n' +
+    'chapter\tn. 章\ncharacter\tn.（汉）字.字体；品格\ncharacteristic\tadj. 典型的，独特的\n' +
+    'charge\tv. 要求收费；索价；将(电池)充电 n. 费用；价钱\nchart\tn. 图表；航海图\nchat\tn. & vi. 聊天，闲谈\n' +
+    'cheap\tadj. 便宜的，贱\ncheat\tn. & v. 骗取，哄骗；作弊\ncheck\tn. 检查；批改 vt. 校对，核对； 检查；批改\ncheek\tn. 面颊，脸蛋\n' +
+    'cheer\tn. & vi.欢呼； 喝彩\ncheerful\tadj. 兴高采烈的，快活的\ncheers\tint. 干杯，(口)谢谢，再见\ncheese\tn. 奶酪\n' +
+    'chef\tn. 厨师长，主厨\nchemical\tadj. 化学的 n. 化学品\nchemist\tn. 药剂师；化学家\nchemistry\tn. 化学\n' +
+    'cheque\t(美check) n. 支票\nchess\tn. 棋\nchest\tn. 箱子；盒子；胸部\nchew\tvt. 咀嚼\nchick\tn. 小鸡\n' +
+    'chicken\tn. 鸡；鸡肉\nchief\tadj. 主要,首要的 n.领导，头\nchild\tn. 孩子，儿童\nchildhood\tn. 幼年时代，童年\n' +
+    'chimney\tn. 烟囱，烟筒\nchina\tn. 中国\nchinese\tadj. 中国的；中国人的；中国话的，汉语的 n.中国人；…\n' +
+    'chips\tn. (pl.)炸土豆条（片）\nchocolate\tn. 巧克力\nchoice\tn. 选择；抉择\nchoir\tn. 合唱团，教堂的唱诗班\n' +
+    'choke\tn. & v. 窒息\nchoose\tvt. 选择\nchopsticks\tn. 筷子\nchorus\tn. 合唱曲，歌咏队\n' +
+    'christian\tn. 基督教徒和天主教徒的总称\nchristmas\tn. 圣诞节（12月25日）\nchurch\tn. 教堂；教会\ncigar\tn. 雪茄烟\n' +
+    'cigarette\tn. 纸烟，香烟\ncinema\tn. 电影院；电影\ncircle\tn. /vt. 圆圈 将…圈起来\ncircuit\tn. 环形路线，巡回赛\n' +
+    'circulate\tv. （液体或气体）环流，循环\ncircumstance\tn.条件,环境,状况\ncircus\tn. 马戏团\ncitizen\tn. 公民；居民\n' +
+    'city\tn. 市，城市，都市\ncivil\tadj. 国内的；平民（非军人）的；民用的\ncivilian\tn. 平民，老百姓\ncivilization\tn. 文明\n' +
+    'clap\tvi. 拍手；鼓掌\nclarify\tv. 澄清，阐明\nclass\tn. （学校的）班；年级；课\nclassic\tadj. 一流的，典型的，有代表性的\n' +
+    'classical\tadj. 传统的；古典的\nclassify\tv. 分类，归类\nclassmate\tn. 同班同学\nclassroom\tn. 教室\nclaw\tn. 爪\n' +
+    'clay\tn. 黏土，陶土\nclean\tvt. 弄干净，擦干净 a. 清洁的，干净的\ncleaner\tn.清洁工.,清洁器.,清洁剂\n' +
+    'clear\tadj. 清晰；明亮的；清楚的\nclearly\tadv. 清楚地，无疑地\nclerk\tn. 书记员；办事员；职员\nclever\tadj. 聪明的，伶俐的\n' +
+    'click\tv. 点击（计算机用语）\nclimate\tn. 气候\nclimb\tv. 爬，攀登\nclinic\tn. 诊所\nclock\tn. 钟\n' +
+    'clone\tn.克隆（无性繁殖出来的有机体群）\nclose\tadj. 亲密的；近，靠近 ad. 近，靠近 vt. 关，…\ncloth\tn. 布\n' +
+    'clothes\tn. 衣服；各种衣物\nclothing\tn. (总称) 衣服\ncloud\tn. 云；云状物；阴影\ncloudy\tadj. 多云的，阴天的\n' +
+    'club\tn. 俱乐部；纸牌中的梅花\nclumsy\tadj. 笨拙的，不灵巧的\ncoach\tn. 教练；马车；长途车\ncoal\tn. 煤；煤块\n' +
+    'coast\tn. 海岸；海滨\ncoat\tn. 外套；涂层；表皮；皮毛 vt. 给……穿外套；涂上\ncock\tn. 公鸡\ncocoa\tn. 可可粉\ncoffee\tn. 咖啡\n' +
+    'coin\tn. 硬币\ncoincidence\tn. 巧合，巧事\ncoke\tn. 可口可乐\ncold\tadj. 冷的，寒的 n. 寒冷；感冒，伤风\n' +
+    'collar\tn. 衣领； 硬领\ncolleague\tn. 同事\ncollect\tvt. 收集，搜集\ncollection\tn. 收藏品，收集物\n' +
+    'college\tn. 学院；专科学校\ncollision\tn. 碰撞事故\ncolour\tn. 颜色 vt.给…着色，涂色\ncomb\tn. 梳子 v. 梳\n' +
+    'combine\tvt. 使联合；使结合\ncome\tvi. 来，来到\ncomedy\tn. 喜剧\ncomfort\tn. 安慰； 慰问\n' +
+    'comfortable\tadj. 舒服的；安逸的；舒服自在的\ncomma\tn. 逗号\ncommand\tn. & v. 命令\ncomment\tn. 评论\n' +
+    'commercial\tadj. 贸易的，商业的\ncommit\tv.犯（罪，错），自杀\ncommitment\tn. 承诺,允诺,承担\ncommittee\tn. 委员会\n' +
+    'common\tadj. 普通，一般；共有的\ncommunicate\tv. 交际；传达（感情，信息等）\ncommunication\tn.交际,交往;通讯\n' +
+    'communism\tn. 共产主义\ncommunist\tn. 共产主义者 a. 共产党的；共产主义的\ncompanion\tn. 同伴；同事\ncompany\tn. 公司\n' +
+    'compare\tvt. 比较，对照\ncompass\tn. 罗盘，指南针\ncompensate\tv. 补偿，弥补\ncompete\tvi. 比赛，竞赛\n' +
+    'competence\tn.能力,胜任,管辖权\ncompetition\tn. 比赛，竞赛\ncompetitor\tn. 竞赛者，比赛者\n' +
+    'complete\tadj. 完成vt. 完成，结束\ncomplex\tadj. / n. 复杂的，建筑群\ncomponent\tn. 组成部分，部件\n' +
+    'composition\tn. 作文；作曲\ncomprehension\tn. 理解\ncompromise\tv. 妥协,折中,让步\n' +
+    'compulsory\tadj. 强制的,必须做的\ncomputer\tn. 电子计算机\ncomrade\tn. 同志\nconcentrate\tv. 聚精会神\n' +
+    'concept\tn. 概念\nconcern\tv. / n. 涉及，关心\nconcert\tn. 音乐会；演奏会\nconclude\tv. 完成，结束\n' +
+    'conclusion\tn. 结论；结束\nconcrete\tadj. 混凝土制的\ncondemn\tv. 谴责，指责，宣判\ncondition\tn. 条件，状况\n' +
+    'conduct\tvt. 引导，带领\nconductor\tn. 管理人；指导者；（车上的）售票员，列车员；乐队指挥\nconference\tn. (正式的)会议；讨论\n' +
+    'confident\tadj. 自信的\nconfidential\tadj. 机密的，保密的\nconfirm\tv. 证实，证明，确认\nconflict\tn. 冲突，争执，争论\n' +
+    'confuse\tv. 使迷惑，混淆\ncongratulate\tvt. 祝贺\ncongratulation\tn. 祝贺，庆贺\nconnect\tv. 连接，把…联系起来\n' +
+    'connection\tn.连接物;接触,联系\nconscience\tn. 良心，良知，内疚\nconsensus\tn. 一致的意见，共识\n' +
+    'consequence\tn. 结果，后果\nconservation\tn 保存；（自然资源的）保护，管理\n' +
+    'conservative\tadj. 保守的，守旧的；保守主义的；谨慎的 n.保守的人…\nconsider\tvt. 考虑\nconsiderate\tadj. 体贴的\n' +
+    'consideration\tn. 考虑；关心\nconsist\tv. 包含，组成，构成\nconsistent\tadj. 一致的，始终如一的，连续的\n' +
+    'constant\tadj. 经常的，不断的\nconstitution\tn. 宪法，章程，身体素质\nconstruct\tv. 构筑；建造，建设\n' +
+    'construction\tn.建造,建设,建筑物\nconsult\tv. 咨询，商量\nconsultant\tn. 顾问\nconsume\tv. 消耗，耗费（燃料，能量，时间等）\n' +
+    'contain\tv. 包含；包括；能容纳\ncontainer\tn. 容器\ncontemporary\tadj. 属同时期的，同一时代的\n' +
+    'content\tadj. 甘愿的,满意的 n.内容\ncontinent\tn. 大陆，大洲；陆地\ncontinue\tvi. 继续\ncontradict\tv. 反驳，驳斥，批驳\n' +
+    'contradictory\tadj. 相互矛盾,对立的\ncontrary\tn. / a. 相反 相反的\ncontribute\tv. 贡献\ncontribution\tn. 贡献\n' +
+    'control\tvt.& n. 控制\ncontroversial\tadj. 引起争论的,有争议的\nconvenience\tn. 便利\n' +
+    'convenient\tadj. 便利的，方便的\nconventional\tadj. 依照惯例的，习惯的\nconversation\tn. 谈话，交谈\n' +
+    'convey\tv. 表达，传递（思想，感情等）\nconvince\tv. 使确信，使信服\ncook\tn.炊事员,厨师 v.烹调,做饭\n' +
+    'cooker\tn. 炊具(锅、炉灶、烤炉等)\ncookie\tn. 小甜饼\ncool\tadj. 凉的，凉爽的；酷\n' +
+    'copy\tn. 抄本，副本；一本（份，册……） v. 抄写；复印；（…\ncoral\tn. 珊瑚；珊瑚虫\ncordless\tadj. 无线的\ncorn\tn. 玉米，谷物\n' +
+    'corner\tn. 角；角落；拐角\ncorporation\tn. （大）公司\ncorrect\tv. 改正；纠正 a. 正确的，对的；恰当的\ncorrection\tn. 改正\n' +
+    'correspond\tvi. 一致；与……相当；(与人)通信，有书信往来\ncorrupt\tadj. / v. 贪污的，腐败的，使腐化，堕落\n' +
+    'cost\tv.值（钱），花费 n. 价格\ncosy\tadj. 暖和舒适的,亲密无间的\ncottage\tn. (郊外)小屋,村舍,别墅\ncotton\tn. 棉花 a. 棉花的\n' +
+    'cough\tn.& vi. 咳嗽\ncount\tvt. 数，点数\ncounter\tn. 柜台，结账处\ncountry\tn. 国家；农村，乡下\n' +
+    'countryside\tn. 乡下，农村\ncouple\tn. 夫妇，一对\ncourage\tn. 勇气； 胆略\ncourse\tn. 过程；经过；课程\n' +
+    'court\tn. 法庭；法院\ncourtyard\tn. 庭院，院子\ncousin\tn. 堂（表）兄弟，堂（表）姐妹\ncover\tn. 盖子；罩 v. 覆盖，遮盖；掩盖\n' +
+    'cow\tn. 母牛，奶牛\ncowboy\tn.（美国）牛仔;牧场骑士\ncrash\tv. / n. 碰撞，撞击\ncrayon\tn 蜡笔；蜡笔画\ncrazy\tadj. 疯狂的\n' +
+    'cream\tn. 奶油，乳脂\ncreate\tvt. 创造； 造成\ncreature\tn. 生物，动物\ncredit\tn. 信用；信赖；信誉\ncrew\tn. 全体船员\n' +
+    'crime\tn. （法律上的）罪，犯罪\ncriminal\tn. 罪犯\ncriterion\tn. 标准，准则，原则\ncrop\tn. 庄稼；收成\n' +
+    'cross\tadj. 脾气不好的，易怒的 n. 十字形的东西 vt. …\ncrossing\tn. 十字路口，人行横道\ncrossroads\tn. 交叉路口\n' +
+    'crowd\tn. 人群 vt. 拥挤，群聚\ncrowded\tadj. 拥挤的\ncruel\tadj. 残忍的，残酷的；无情的\ncry\tn. 叫喊；哭声 v. 喊叫；哭\n' +
+    'cube\tn. 立方体\ncubic\tadj. 立方体的，立方形的\ncuisine\tn. 饭菜，佳肴\nculture\tn. 文化\ncup\tn. 茶杯\n' +
+    'cupboard\tn. 碗柜；橱柜\ncure\tn. & vt. 治疗；医好\ncurious\tadj. 好奇的；奇异的\ncurrency\tn. 货币；现金\n' +
+    'curriculum\tn.（学校的）全部课程\ncurtain\tn. 窗帘\ncushion\tn. 垫子\ncustom\tn. 习惯，习俗，风俗习惯\n' +
+    'customer\tn. （商店）顾客，主顾\ncustoms\tn. 海关，关税\ncut\tv. / n. 切，剪，削，割, 伤口\ncycle\tvi. 骑自行车\n' +
+    'cyclist\tn. 骑自行车的人\ndaily\tadj. 每日的；日常的 ad. 每天 n. 日报\ndam\tn. 水坝，堰堤\ndamage\tn.& vt. 毁坏，损害\n' +
+    'damp\tadj. & n. 潮湿（的）\ndance\tn.& vi. 跳舞\ndanger\tn. 危险\ndangerous\tadj. 危险的\n' +
+    'dare\tv.& aux..（后接不带to的不定式；主要用于疑问，否…\ndark\tn. 黑暗；暗处；日暮 a. 黑暗的；暗淡的；深色的\ndarkness\tn. 黑暗，阴暗\n' +
+    'dash\tv. & n. 快跑，冲刺，短跑\ndata\tn. 资料，数据\ndatabase\tn. 资料库，数据库\ndate\tn. 日期；约会 n.枣\n' +
+    'daughter\tn. 女儿\ndawn\tn. 黎明，拂晓\nday\tn.（一）天，（一）日；白天\ndaylight\tn. 日光，白昼； 黎明\n' +
+    'dead\tadj. 死的；无生命的\ndeadline\tn.最后期限，截止日期\ndeaf\tadj. 聋的\ndeal\tn. 量，数额；交易\n' +
+    'dear\tint.（表示惊愕）哎呀！唷！ a. 亲爱的；贵的\ndeath\tn. 死\ndebate\tn. & v.讨论，辩论\ndebt\tn. 债务；欠款\n' +
+    'decade\tn. 十年期\ndecember\tn. 12月\ndecide\tv. 决定；下决心\ndecision\tn. 决定；决心\ndeclare\tvt. 声明；断言\n' +
+    'decline\tv. 减少,下降,衰退,谢绝\ndecorate\tvt.装饰…，修饰…\ndecoration\tn.装饰，修饰\ndecrease\tv.减少，减小，降低\n' +
+    'deed\tn. 行为；事迹\ndeep\tadj. 深 ad. 深；深厚\ndeeply\tadv. 深深地\ndeer\tn. 鹿\ndefeat\tvt. 击败；战胜\n' +
+    'defence\tn. & v. 防御；防务\ndefend\tvt. 防守；保卫\ndegree\tn. 程度；度数；学位\ndelay\tv.& n. 拖延，延误，延迟，延期；耽搁\n' +
+    'delete\tv. 删去\ndeliberately\tadv. 故意,蓄意,存心\ndelicate\tadj. 易损的，易碎的\ndelicious\tadj. 美味的，可口的\n' +
+    'delight\tn. 快乐；乐事\ndelighted\tadj. 高兴的，快乐的\ndeliver\tvt. 投递（信件，邮包等）\ndemand\tvt. 要求\n' +
+    'dentist\tn. 牙科医生 \ndepartment\tn. 部门；（机关的）司，处；（大学的）系\ndeparture\tn. 离开，启程\n' +
+    'depend\tvi. 依靠，依赖，指望；取决于\ndeposit\tv. / n. 订金，押金，放下，放置，储存\ndepth\tn. 深，深度\ndescribe\tvt. 描写，叙述\n' +
+    'description\tn. 描述，描写\ndesert\tn. 沙漠 vt. 舍弃； 遗弃\ndeserve\tv.（不用于进行时态）应得，应受\n' +
+    'design\tn.& vt. n. 设计，策划 图案，图样，样式\ndesire\tvt. & n. 要求；期望\ndesk\tn. 书桌，写字台\n' +
+    'desperate\tadj. （因绝望而）不惜冒险的，不顾一切的，拼命的\ndessert\tn. 甜点\ndestination\tn.目的地，终点\n' +
+    'destroy\tvt. 破坏，毁坏\ndetective\tn. 侦探\ndetermination\tn. 决心\ndetermine\tvt. 决定；决心\n' +
+    'develop\tv. （使）发展；（使）发达；（使）发育；开发 vt. 冲…\ndevelopment\tn. 发展，发达，发育，开发\n' +
+    'devote\tvt. 把…奉献, 把…专用（于）\ndevotion\tn. 奉献，奉献精神\ndiagram\tn. 图表，图样\ndial\tvt. 拨（电话号码）\n' +
+    'dialogue\tn. 对话\ndiamond\tn. 钻石，金刚石；纸牌中的方块\ndiary\tn. 日记；日记簿\ndictation\tn. 听写\n' +
+    'dictionary\tn. 词典，字典\ndie\tv. 死\ndiet\tn. 饮食\ndiffer\tv. 相异，有区别\ndifference\tn. 不同\n' +
+    'different\tadj. 不同的，有差异的\ndifficult\tadj. 难；艰难；不易相处\ndifficulty\tn. 困难，费力\ndig\tv. 挖（洞沟）,掘\n' +
+    'digest\tv.消化, 领会\ndigital\tadj. .数字的，数码的\ndignity\tn. 庄重，庄严，尊严。尊贵，高尚\ndilemma\tn. （进退两难的）窘境，困境\n' +
+    'dimension\tn.量度，尺寸，面积，程度，范围\ndine\tv. 吃饭；（指正式）进餐\ndinner\tn. 正餐，宴会\ndinosaur\tn. 恐龙\n' +
+    'dioxide\tn.二氧化物\ndip\tvt. 浸，蘸；把…放入又取出\ndiploma\tn.毕业文凭；学位证书\n' +
+    'direct\tadj. / vt. 直接的；直达的；直截了当的 指挥；指…\ndirection\tn. 方向；方位\ndirector\tn. 所长，处长，主任；董事；导演\n' +
+    'directory\tn. 姓名地址录\ndirt\tn. 污物；脏物\ndirty\tadj. 脏的\ndisability\tn.. 残疾；无能\n' +
+    'disabled\tadj. 残废的，残疾的\ndisadvantage\tn. 不利条件；弱点\ndisagree\tvi. 意见不一致，持不同意见\n' +
+    'disagreement\tn. 意见不一致；相违；争论\ndisappear\tvi. 消失\ndisappoint\tvt. 使失望\ndisappointment\tn. 失望；沮丧\n' +
+    'disaster\tn. 灾难；祸患\ndiscount\tn. 折扣\ndiscourage\tvt. （使）气馁；打消（做…的念头）\ndiscover\tvt. 发现\n' +
+    'discovery\tn. 发现\ndiscrimination\tn. 歧视\ndiscuss\tvt. 讨论，议论\ndiscussion\tn. 讨论，辩论\n' +
+    'disease\tn. 病，疾病\ndisgusting\tadj. 极糟的，令人不快的，令人厌恶的\ndish\tn. 盘，碟；盘装菜；盘形物\ndislike\tvt. 不喜爱；厌恶\n' +
+    'dismiss\tvt. 让……离开；遣散；解散；解雇\ndisobey\tvt. 不服从\ndistance\tn. 距离\ndistant\tadj. 远的，遥远的\n' +
+    'distinction\tn.差别,区别,优秀,卓越\ndistinguish\tv. 区分，辨别，分清\ndistribute\tv. 分发，分配\n' +
+    'district\tn. 区；地区；区域\ndisturb\tvt. 扰乱；打扰\ndisturbing\tadj. 令人不安的，引起恐慌的\ndive\tvi. 跳水\n' +
+    'diverse\tv. 不同的，多种多样，形形色色的\ndivide\tvt. 分，划分\ndivision\tn. （算术用语）除\ndivorce\tv. 离婚\n' +
+    'dizzy\tadj. 头眩目晕的\ndoctor\tn. 医生，大夫；博士\ndocument\tn. 文件；文献\ndog\tn. 狗\ndoll\tn. 玩偶，玩具娃娃\n' +
+    'dollar\tn. 元（美国、加拿大、澳大利亚等国货币单位）\ndoor\tn. 门\ndormitory\tn. 学生宿舍（缩写式dorm）\ndot\tn. 点，小点，圆点\n' +
+    'double\tadj. 两倍.双的 n. 两个.双\ndoubt\tn.& v. 怀疑，疑惑\ndown\tprep. 沿着，沿…而下 ad. 向下\n' +
+    'download\tn.& v. 下载\ndownstairs\tadv. 在楼下；到楼下\ndowntown\tadv. 往或在城市的商业区（或中心区、闹市区） n. 城…\n' +
+    'downward\tadv. 向下\ndozen\tn. 十二个；几十，许多\ndraft\tn. / v. 草稿，草案，起草，草拟\ndrag\tv. 拖；拽\n' +
+    'draw\tv. 绘画；绘制；拉，拖；提取（金钱）\ndrawback\tn.缺点，不利条件\ndrawer\tn. 抽屉\ndrawing\tn. 图画，素描,绘画\n' +
+    'dream\tn.& vt. 梦，梦想\ndress\tn. 女服，连衣裙；(统指)服装；童装 v. 穿衣；穿着\n' +
+    'drill\tn. 钻头；（反复的）训练 vt. 钻(孔)， 在…上钻孔…\ndrink\tn. 饮料；喝酒 \ndrive\tv. 驾驶，开（车）；驱赶\n' +
+    'driver\tn. 司机，驾驶员\ndrop\tn.滴 v.掉下.落下.投递.放弃\ndrown\tvi. 溺死；淹没\ndrug\tn. 药，药物；毒品\ndrum\tn. 鼓\n' +
+    'drunk\tadj. 醉的\ndry\tv. 使…干；弄干；擦干 a. 干的；干燥的\nduck\tn. 鸭子\ndue\tadj. 预期的；约定的\n' +
+    'dull\tadj. 阴暗的；单调无味\ndumpling\tn. 饺子\nduring\tprep. 在…期间；在…过程中\ndusk\tn. 黄昏\ndust\tn. 灰尘，尘土\n' +
+    'dustbin\tn. 垃圾箱\ndusty\tadj. 尘土般的，尘土多的\nduty\tn. 责任，义务\ndvd\t数码影碟(digital versatile disk)\n' +
+    'dynamic\tadj. 充满活力,精力充沛的\ndynasty\tn.王朝，朝代\neach\tadj. & pron.每人.每个.每件\neager\tadj. 渴望的，热切的\n' +
+    'eagle\tn. 鹰\near\tn.耳朵.耳状物；听力，听觉\nearly\tadj. 早的 ad. 早地\nearn\tvt. 挣得，赚得\nearth\tn. 地球；土，泥；大地\n' +
+    'earthquake\tn. 地震\nease\tv. 减轻；缓解（难度或严重程度）\neasily\tadv. 容易地\n' +
+    'east\tadj. 东方；东部的；朝东的；从东方来 ad. 在东方；…\neaster\tn. 复活节\neastern\tadj. 东方的；东部的\n' +
+    'eastwards\tadv. 向东\neasy\tadj. 容易的，不费力的\neat\tv. 吃\necology\tn. 生态，生态学\nedge\tn. 边缘\n' +
+    'edition\tn.（发行物的）版，版（本）\neditor\tn. 编辑\neducate\tvt. 教育，培养\neducation\tn. 教育，培养\n' +
+    'educator\tn. 教育家\neffect\tn. 效果；作用\neffort\tn. 努力，艰难的尝试\negg\tn. 蛋；卵\neggplant\tn. 茄子\n' +
+    'egypt\tn. 埃及\negyptian\tadj. 埃及的；埃及人的；埃及语的 n. 埃及人\neight\tnum. 八\neighteen\tnum. 十八\n' +
+    'eighth\tnum. 第八\neighty\tnum. 八十\neither\tadj. 两方任一方的；二者之一 conj. 二者之一；要…\nelder\tn. 长者；前辈\n' +
+    'elect\tvt. （投票）选举\nelectric\tadj. 电的\nelectrical\tadj. 电的；电器的\nelectricity\tn. 电；电流\n' +
+    'electronic\tadj. 电子的\nelegant\tadj. 文雅的,漂亮的,精美的\nelephant\tn. 象\neleven\tnum. 十一\n' +
+    'else\tadv. 别的，其他的\nemail\tn. 电子邮件\nembarrass\tv.使窘迫，尴尬\nembassy\tn. 大使馆\nemergency\tn.紧急情况或状态\n' +
+    'emperor\tn. 皇帝\nempire\tn. 帝国\nemploy\tvt. 雇佣\nempty\tadj. 空的\nencourage\tvt. 鼓励\n' +
+    'encouragement\tn. 鼓励\nend\tn. 末尾；终点；结束 v. 结束，终止\nending\tn. 结局；结尾，最后\nendless\tadj. 无止境的； 没完的\n' +
+    'enemy\tn. 敌人；敌军\nenergetic\tadj. 精力旺盛的\nenergy\ty n. 精力，能量\nengine\tn. 发动机，引擎\n' +
+    'engineer\tn. 工程师；技师\nengland\tn. 英格兰\nenglish\tadj. 英国的，英国人的，英语的 n. 英语\nenjoy\tvt.欣赏；享受乐趣；喜欢\n' +
+    'enjoyable\tadj. 愉快的；有趣的\nenlarge\tvt. 扩大\nenough\tn. 足够；充足 a. 足够；充分的 ad. 足够地；充分地\n' +
+    'enquiry\tn. 询问\nenter\tvt. 进入\nenterprise\tn.公司，企，事业单位\nentertainment\tn. 娱乐\n' +
+    'enthusiastic\tadj. 热情的，热心的\nentire\tadj. 整个的，全部的\nentrance\tn. 入口；入场；进入的权利;入学许可\nentry\tn. 进入\n' +
+    'envelope\tn. 信封\nenvironment\tn.环境\nenvy\tvt.& n. 忌妒； 羡慕\nequal\tadj. 平等的 vt.等于，使等于\n' +
+    'equality\tn. 平等\nequip\tvt. 提供设备；装备；配备\nequipment\tn. 装备，设备\neraser\tn. 橡皮擦；黑板擦\n' +
+    'error\tn. 错误；差错\nerupt\tv.（火山）爆发，喷发\nescape\tn.& vi. 逃跑；逃脱\nespecially\tadv. 特别，尤其\n' +
+    'essay\tn. 散文；文章；随笔\neurope\tn. 欧洲\neuropean\tadj. 欧洲的，欧洲人的 n. 欧洲人\nevaluate\tv.估值，评价，评估\n' +
+    'even\tadv. 甚至，连（…都）；更\nevening\tn. 傍晚，晚上\nevent\tn. 事件，大事\neventually\tadv. 最终地\n' +
+    'ever\tadv. 曾经；无论何时\nevery\tadj. 每一，每个的\neverybody\tpron.每人，人人\neveryday\tadj. 每日的；日常的\n' +
+    'everyone\tpron. 每人，人人\neverything\tpron. 每件事，事事\neverywhere\tadv. 到处\nevidence\tn. 证据，证明\n' +
+    'evident\tadj. 清楚的，显而易见的\nevolution\tn. 进化，演变\nexact\tadj. 精确的；确切的\nexactly\tadv. 精确地；确切地\n' +
+    'examine\tvt. 检查；诊察\nexample\tn. 例子；榜样\nexcellent\tadj. 极好的，优秀的\nexcept\tprep. 除……之外\n' +
+    'exchange\tn. 交换，掉换；交流\nexcite\tvt. 使兴奋，使激动\nexcuse\tn.借口.辩解 vt.原谅.宽恕\n' +
+    'exercise\tn. 锻炼，做操；练习，习题 vi. 锻炼\nexhibition\tn. 展览；展览会\nexist\tvi. 存在\nexistence\tn.存在；生存；存在物\n' +
+    'exit\tn. 出口，太平门\nexpand\tv.扩大，增加，扩展\nexpect\tvt. 预料；盼望；认为\nexpectation\tn. 预料；期望\n' +
+    'expense\tn. 消费； 支出\nexpensive\tadj. 昂贵的\nexperience\tn. 经验；经历\nexperiment\tn. 实验\n' +
+    'expert\tn. 专家，能手\nexplain\tvt. 解释，说明\nexplanation\tn. 解释，说明\nexplicit\tadj. 清楚明白,易于理解的\n' +
+    'explode\tv. （使）爆炸\nexploit\tvt.开采.开发.利用.剥削\nexplore\tv. 探险\nexplorer\tn. 探险者\n' +
+    'export\tn. / v.出口，输出\nexpose\tvt. 揭露\nexpress\tvt. 表达；表示；表情 n. 快车，特快专递\n' +
+    'expression\tn. 表达；词句；表示，说法；表情\nextension\tn.扩大，延伸\nextra\tadj. 额外的，外加的\n' +
+    'extraordinary\tadj. 离奇的；使人惊奇的\nextreme\tadj. 极其的，非常的\nextremely\tadv. 极其，非常\neye\tn. 眼睛\n' +
+    'eyesight\tn. 视力；视觉\neyewitness\tn. 目击证人\nface\tn. 脸 vt. 面向；面对\nfacial\tadj. 面部用的\n' +
+    'fact\tn. 事实，现实\nfactory\tn. 工厂\nfade\tvi. 褪色，（颜色）消退\nfail\tv. 失败；不及格；衰退\nfailure\tn. 失败\n' +
+    'fair\tadj. 公平的，合理的 a. (肤色)白皙的； （人）白…\nfairly\tadv. 公正地，正当地；相当（程度）地\nfairness\tn. 公平；公正\n' +
+    'faith\tn. 信仰；信念\nfall\tn. （美）秋季\nfalse\tadj. 不正确的；假的\nfamiliar\tadj. 熟悉的\nfamily\tn. 家庭；家族；子女\n' +
+    'famous\tadj. 著名的\nfan\tn. （电影、运动等的）迷；热心的爱好者（支持者） n. …\nfancy\tadj. 花式；装饰的；奇特的\n' +
+    'fantastic\tadj. (口语)极好的，美妙的，很棒的\nfantasy\tn 幻想，梦想\nfar\t(farther, farthest 或further ,…\n' +
+    'fare\tn.（车或船的）费用，票（价）\nfarm\tn. 农场；农庄\nfarmer\tn. 农民\nfast\tadj. 快的，迅速的；紧密的 ad. 快地，迅速地；紧密地\n' +
+    'fasten\tvt. 扎牢；扣住\nfat\tn. 脂肪 a. 胖的；肥的\nfather\tn. 父亲\nfault\tn. 缺点，毛病\n' +
+    'favour\t(美favor) n. 恩惠；好意；帮助\nfavourite\t(美 favorite) a. 喜爱的 n. 特别喜爱的人…\nfax\tn. 传真\n' +
+    'fear\tn. 害怕；恐惧； 担忧\nfeast\tn.盛宴，宴会，（宗教的）节日\nfeather\tn. 羽毛\nfebruary\tn. 2月\n' +
+    'federal\tl a.中央的（政府）联邦的\nfee\tn. 费，费用\nfeed\tvt. 喂（养）；饲（养）\nfeel\tv.& link 感觉，觉得；摸，触\n' +
+    'feeling\tn. 感情；感觉\nfellow\tn. 同伴；伙伴\nfemale\tadj. 女的；女性的；雌性的\nfence\tn. 栅栏；围栏；篱笆\nferry\tn. 渡船\n' +
+    'festival\tadj. 节日的，喜庆的\nfetch\tvt. （去）取（物）来，（去）带（人）来\nfever\tn. 发烧；发热\n' +
+    'few\tpron. 不多；少数 不多的；少数的\nfibre\t(美fiber) n. 纤维质\nfiction\tn.小说，虚构的事\nfield\tn. 田地；牧场；场地\n' +
+    'fierce\tadj. 猛烈的\nfifteen\tnum. 十五\nfifth\tnum. 第五\nfifty\tnum. 五十\nfight\tn. 打仗（架），争论\n' +
+    'fighter\tv. 战士；斗士\nfigure\tn.数字；数目；图；图形；（人的）身型；人物；（绘画、雕刻…\nfile\tn.公文柜；档案(计算机)文档\n' +
+    'fill\tvt. 填空，装满\nfilm\tn. 电影；影片；胶卷vt. 拍摄，把……拍成电影\nfinal\tadj. 最后的；终极的\nfinance\tn.资金，财政，财务\n' +
+    'find\t(found, found) vt. 找到，发现，感到\nfine\tadj. 细的；晴朗的；美好的；（身体）健康的 n.& v…\nfinger\tn. 手指\n' +
+    'fingernail\tn. 指甲\nfinish\tv. 结束；做完\nfire\tn. 火；火炉；火灾 vi. 开火，开（枪，炮等），射击\nfirefighter\tn. 消防人员\n' +
+    'fireplace\tn. 壁炉\nfirewood\tn. 木柴\nfirework\tn. 焰火\nfirm\tn.公司;企业 a.坚固的,坚定的\nfirmly\tadv. 牢牢地\n' +
+    'first\tnum. 第一 a.& ad. 第一；首次；最初 n. 开…\nfish\tn. 鱼；鱼肉 vi. 钓鱼；捕鱼\nfisherman\tn. 渔民；钓鱼健身者\n' +
+    'fist\tn. 拳(头)\nfit\tadj. 健康的, 适合的 v. （使）适合，安装\nfive\tnum. 五\nfix\tvt. 修理；安装；确定，决定\n' +
+    'flag\tn. 旗；标志；旗舰\nflame\tn. 火焰，光辉\nflaming\tadj. 火红的；火焰般的\nflash\tn. 闪；闪光； 转瞬间\n' +
+    'flashlight\tn. 手电\nflat\tadj. 平的 n. 楼中一套房间； 公寓(常用复数)\nflee\t(fled, fled) v. 逃走；逃跑\nflesh\tn. 肉\n' +
+    'flexible\tadj. 灵活的，可变动的\nflight\tn. 航班 n. 楼梯的一段\nfloat\tvi. 漂浮，浮动\nflood\tn. 洪水 vt. 淹没，使泛滥\n' +
+    'floor\tn.地面，地板.（楼房的）层\nflour\tn. 面粉，粉\nflow\tvi. 流动\nflower\tn. 花\nflu\tn. 流行性感冒\n' +
+    'fluency\tn.（外语）流利，流畅\nfluent\tadj. （外语）流利的，流畅\nfly\tn. 飞行；苍蝇\nfocus\tv. / n.集中（注意力，精力）于，焦点，中心点\n' +
+    'fog\tn. 雾\nfoggy\tadj. 多雾的\nfold\tvt. 折叠；合拢\nfolk\tadj. 民间的\nfollow\tvt. 跟随；仿效；跟得上\n' +
+    'following\tadj. 接着的；以下的\nfond\tadj. 喜爱的，爱好的\nfood\tn. 食物，食品\nfool\tn. 傻子，蠢人\n' +
+    'foolish\tadj. 愚蠢的，傻的\nfoot\tn. 足，脚；英尺\nfootball\tn. （英式）足球；（美式）橄榄球\n' +
+    'for\tprep. 为了…；向…，往…；与…交换；防备…；适合…；…\nforbid\t(forbade, forbidden) vt. 禁止，不许\nforce\tvt. 强迫，迫使\n' +
+    'forecast\tn. & vt. 预告\nforehead\tn. 前额\nforeign\tadj. 外国的\nforeigner\tn. 外国人\n' +
+    'foresee\t(foresaw, foreseen) vt.预见.预知\nforest\tn. 森林\nforever\tadv. 永远；永恒的\n' +
+    'forget\t(forgot, forgotten) v. 忘记；忘掉\nforgetful\tadj. 健忘的，不留心的\n' +
+    'forgive\t(forgave, forgiven) vt. 原谅，宽恕\nfork\tn. 叉，餐叉\nform\tn. 表格；形式；结构\nformat\tn.安排，计划，设计\n' +
+    'former\tadj. 以前的，从前的；（两者之中的）前者\nfortnight\tn. 十四日，两星期\nfortunate\tadj. 幸运的； 侥幸的\n' +
+    'fortune\tn. 财产；运气\nforty\tnum. 四十\nforward\tadv. 将来.今后.向前，前进\nfound\tvt. 成立，建立\n' +
+    'founding\tn. 成立，建立\nfountain\tn. 喷泉\nfour\tnum. 四\nfourteen\tnum. 十四\nfourth\tnum. 第四\n' +
+    'fox\tn. 狐狸\nfragile\tadj. 易碎的，易损的\nfragrant\tadj. 香的，芳香的\nframework\tn.（建筑物）框架，结构\n' +
+    'franc\tn. 法郎\nfrance\tn. 法国\nfree\tadj. 自由，空闲的；免费的\nfreedom\tn. 自由\nfreeway\tn. 高速公路\n' +
+    'freeze\t(froze, frozen) vi. 结冰\nfreezing\tadj. 冻结的；极冷的\nfrench\tn. 法语 a法国的；法国人的；法语的\n' +
+    'frenchman\t(复 Frenchmen) n. 法国人（男）\nfrequent\tadj. 经常的；频繁的\nfresh\tadj. 新鲜的\nfriction\tn. 摩擦\n' +
+    'friday\tn. 星期五\nfried\tadj. 油煎的\nfriend\tn. 朋友\nfriendly\tadj. 友好的\nfriendship\tn. 友谊，友情\n' +
+    'fright\tn. 惊恐；恐吓\nfrighten\tvt. 使惊恐，吓唬\nfrog\tn. 青蛙\nfrom\tprep.从；从…起.距.来自\n' +
+    'front\tadj. 前面的；前部的 n. 前面；前部；前线\nfrontier\tn. 前沿 ，边界；前线\nfrost\tn. 霜\nfruit\tn. 水果；果实\n' +
+    'fry\tvt. 用油煎；用油炸\nfuel\tn. 燃料\nfull\tadj. 满的，充满的；完全的\nfun\tn. 有趣的事，娱乐，玩笑\n' +
+    'function\tn. / v. 作用,功能,运转\nfundamental\tadj. 十分重大的，根本的\nfuneral\tn. 葬礼\nfunny\tadj. 有趣的，滑稽可笑的\n' +
+    'fur\tn. 毛皮；皮子\nfurnished\tadj. 配备了家具的\nfurniture\tn. （总称）家具\nfuture\tn. 将来\ngain\tvt. 赢得；挣得\n' +
+    'gale\tn. 强风（约每小时60英里）\ngallery\tn. 画廊；美术品陈列室\ngallon\tn. 加仑\ngame\tn. 游戏；运动；比赛\n' +
+    'garage\tn. 汽车间（库）\ngarbage\tn. 垃圾\ngarden\tn. 花园，果园，菜园\ngardening\tn. 园艺学\ngarlic\tn. 大蒜\n' +
+    'garment\tn. （一件）衣服\ngas\tn. 煤气\ngate\tn. 大门\ngather\tv. 聚集；采集\ngay\tadj. （男）同性恋的；快活的，愉快的\n' +
+    'general\tadj. 大体，笼统的，总的\ngeneration\tn. 代，一代\ngenerous\tadj. 慷慨大方的\ngentle\tadj. 温柔的，轻轻的\n' +
+    'gentleman\tn. 绅士，先生；有身份、有教养的人\ngeography\tn. 地理学\ngeometry\tn. 几何学\n' +
+    'german\tadj. 德国的，德国人的，德语的 n. 德国人，德语\ngermany\tn. 德国\ngesture\tn. 姿势，手势\nget\tvt. 成为；得到；具有；到达\n' +
+    'gift\tn. 赠品；礼物\ngifted\tadj. 有天赋的；有才华的\ngiraffe\tn. 长颈鹿\ngirl\tn. 女孩\ngive\tvt. 给,递给,付出,给予\n' +
+    'glad\tadj. 高兴的；乐意的\nglance\tvi. 匆匆一看；一瞥\nglare\tv. 瞪眼,怒目而视,闪耀\nglass\tn.玻璃杯,玻璃；(复)眼镜\n' +
+    'glasshouse\tn. 温室，暖房\nglobe\tn. 地球仪,地球\nglory\tn.巨大的光荣; 荣誉;赞美\nglove\tn. 手套\nglue\tn. 胶水\n' +
+    'go\tvi. 去；走；驶；通到；到达 n. 尝试（做某事）\ngoal\tn. （足球）球门，目标\ngoat\tn. 山羊\ngod\tn. 神，（大写）上帝\n' +
+    'gold\tn. 黄金 a 金的，黄金的\ngolden\tadj. 金(黄)色的\ngoldfish\tn. 金鱼\ngolf\tn. 高尔夫球\ngood\tadj. 好；良好\n' +
+    'goodness\tn. 善良，美德\ngoods\tn. 商品，货物\ngoose\tn. 鹅\ngovern\tv. 统治；管理\ngovernment\tn. 政府\n' +
+    'gown\tn. 礼服，长外衣，睡衣\ngrade\tn. 等级；（中小学的）学年；成绩，分数\ngradually\tadv. 逐渐地\ngraduate\tv. 毕业\n' +
+    'graduation\tn. 毕业，毕业典礼\ngrain\tn. 谷物，谷类\ngram\tn. 克(重量单位)\ngrammar\tn. 语法\ngrand\tadj. 宏伟的\n' +
+    'grandchild\tn.(外)孙或孙女.孙辈\ngranddaughter\tn. （外）孙女\ngrandparents\tn.祖父母.外祖父母\n' +
+    'grandson\tn. （外）孙子\ngranny\tn. 老奶奶；祖母；外婆\ngrape\tn. 葡萄\ngraph\tn. 图表，曲线图\ngrasp\tv. 抓住；紧握\n' +
+    'grass\tn. 草；草场；牧草\ngrateful\tadj. 感激的，感谢的\ngravity\tn. 重力，地球引力\ngray\tadj. 灰色的\n' +
+    'great\tadj. 伟大的,重要的,好极了 ad. （口语）好极了，…\ngreece\tn. 希腊\ngreedy\tadj. 贪婪的\n' +
+    'greek\tadj. / n. 希腊的，希腊人的，希腊语的 ; 希腊人…\ngreen\tadj. 绿色的；青的 n. 绿色\ngreengrocer\tn.（英）蔬菜水果商\n' +
+    'greet\tvt. 问候；向……致敬\ngreeting\tn. 祝贺\ngrey\tadj. 灰色的\ngrill\tn. （烧食物的）烤架\ngrocer\tn. 零售商人；食品店\n' +
+    'ground\tn. 地面\ngroup\tn. 组，群\ngrow\tv. 生长；发育；种植；变成\ngrowth\tn. 生长，增长\ngruel\tn. 粥\n' +
+    'guarantee\tv. 保证，担保\nguard\tn. 防护装置，警戒\nguess\tvi. 猜\nguest\tn. 客人，宾客\nguidance\tn. 引导，指导\n' +
+    'guide\tn. 向导，导游者\nguilty\tadj. 有罪,犯法的,做错事的\nguitar\tn. 吉他，六弦琴\ngun\tn. 枪，炮\ngymnastics\tn. 体操\n' +
+    'ha\tint. 哈(笑声)\nhabit\tn. 习惯，习性\nhair\tn. 头发\nhaircut\tn. （男子）理发\nhalf\tadj. & n. 半，一半，半个\n' +
+    'hall\tn. 大厅,会堂,礼堂;过道\nham\tn. 火腿\nhamburger\tn. 汉堡包\nhammer\tn. 锤子，锣锤\n' +
+    'hand\tn. 手；指针 v. 递；给；交付 交上；交进\nhandbag\tn. 女用皮包，手提包\nhandful\tn.(一)把；少数，少量\n' +
+    'handkerchief\tn. 手帕\nhandle\tn. 柄，把柄 v. 处理\nhandsome\tadj. 英俊的\nhandtruck\tn.手推运货车\n' +
+    'handwriting\tn. 书法\nhandy\tadj. 便利的，顺手的 hang(hanged,hang…\nhang\tv.悬挂，吊着；把……吊起\n' +
+    'happen\tvi.（偶然）发生\nhappily\tadv. 幸福地，快乐地\nhappiness\tn. 幸福，愉快\nhappy\tadj. 幸福；快乐的，高兴的\n' +
+    'harbour\tn. 港口\nhard\tadv. 努力地；使劲；猛烈地 a.硬的；困难的；艰难的\nhardly\tadv. 几乎不\nhardship\tn. 困难\n' +
+    'hardworking\tadj. 努力工作的\nharm\tn.&v. 伤害；损伤\nharmful\tadj. 有害的；致伤的\nharmless\tadj. 无害的;不致伤的\n' +
+    'harmony\tn. 融洽，和睦\nharvest\tn.& vt. 收割，收获（物）\nhat\tn.帽子(一般指有边的)；礼帽\nhatch\tv. （鸟、鸡）孵蛋\n' +
+    'hate\tvt.& n. 恨，讨厌\nhave\tvt.有；吃；喝；进行；经受\nhawk\tn. 鹰\nhay\tn. 作饲料用的干草\nhe\tpron. 他\n' +
+    'head\tn. 头；头脑(像)；才智；首脑；源头；标题 a. 头部的…\nheadache\tn. 头疼\nheadline\tn. （报刊的）大字标题\n' +
+    'headmaster\tn. （英）中小学校长\nheadmistress\tn. 女校长\nheadteacher\tn. 中小学班主任\nhealth\tn. 健康，卫生\n' +
+    'healthy\tadj. 健康的，健壮的\nheap\tn. 堆 v. 堆起来\nhear\tv. 听见；听说,得知\nhearing\tn. 听力\n' +
+    'heart\tn.心.心脏, 纸牌中的红桃\nheat\tn. 热 vt. 把……加热\nheaven\tn. 天，天空\nheavily\tadv. 重地，大量地\n' +
+    'heavy\tadj. 重的\nheel\tn. 脚后跟\nheight\tn. 高，高度\nhelicopter\tn. 直升飞机\n' +
+    'hello\tint. 喂；你好（表示打招呼，问候或唤起注意）\nhelmet\tn. 头盔\nhelp\tn. & vt. 帮助，帮忙\nhelpful\tadj. 有帮助的，有益的\n' +
+    'hen\tn. 母鸡\nher\tpron. 她(宾格),她的\nherb\tn. 草药\nhere\tadv. 这里，在这里；向这里\nhero\tn. 英雄，勇士，男主角\n' +
+    'heroine\tn. 女英雄，女主角\nhers\tpron. 她的\nherself\tpron. 她自己\nhey\tint. 嘿！\n' +
+    'hi\tint. 你好（表示打招呼、问候或唤起注 意）\nhibernate\tvi. 冬眠\nhibernation\tn. 冬眠\nhide\tv. 把…藏起来，隐藏\n' +
+    'high\tadj. 高的;高度的 ad. 高地\nhighway\tn.公路,主要交通道路\nhill\tn. 小山;丘陵;土堆;斜坡\nhillside\tn. （小山）山腰，山坡\n' +
+    'hilly\tadj. 丘陵的； 多小山的\nhim\tpron. 他（宾格）\nhimself\tpron. 他自己\nhire\tvt. 租用\nhis\tpron. 他的\n' +
+    'history\tn. 历史，历史学\nhit\tn.& vt. 打,撞,击中\nhive\tn. 蜂房；蜂箱\nhobby\tn. 业余爱好，嗜好\n' +
+    'hold\tvt.拿；抱；握住；举行；进行\nhole\tn. 洞，坑\nholiday\tn. 假日；假期\nholy\tadj. 神圣的\nhome\tn. 家 ad. 到家；回家\n' +
+    'homeland\tn. 祖国\nhometown\tn. 故乡\nhomework\tn. 家庭作业\nhonest\tadj. 诚实的，正直的\nhoney\tn. 蜂蜜\n' +
+    'honour\tn. 荣誉，光荣 vt. 尊敬，给予荣誉\nhook\tn.& v. 钩子；衔接，连接\nhooray\tint. 好哇！（欢呼声）\nhope\tn.& v. 希望\n' +
+    'hopeful\tadj. 有希望的；有前途的\nhopeless\tadj. 没有希望,不可救药的\nhorrible\tadj. 令人恐惧；恐怖的\nhorse\tn. 马\n' +
+    'hospital\tn. 医院\nhost\tn. 主人；节目主持人 v. 做主人招待\nhostess\tn. 女主人\nhot\tadj. 热的\nhotel\tn. 旅馆，饭店，宾馆\n' +
+    'hour\tn. 小时\nhouse\tn. 房子；住宅\nhousewife\tn. 家庭主妇\nhousework\tn. 家务劳动\nhow\tadv. 怎样,如何；多少；多么\n' +
+    'however\tadv. 可是 conj. 然而，可是，尽管如此\nhowl\tvi. 嚎叫，嚎哭\nhug\tv. 拥抱\nhuge\tadj. 巨大的，庞大的\n' +
+    'human\tadj. 人的，人类的\nhumorous\tadj. 富于幽默的\nhumour\tn.幽默,幽默感\nhundred\tnum. 百\nhunger\tn. 饥饿\n' +
+    'hungry\tadj. （饥）饿的\nhunt\tvt. 寻找；狩猎，猎取\nhunter\tn. 猎人\nhurricane\tn. 飓风，十二级风\nhurry\tvi. 赶快；急忙\n' +
+    'hurt\tvt. 伤害，受伤；伤人感情\nhusband\tn. 丈夫\nhydrogen\tn. 氢\nice\tn. 冰\niceland\tn. 冰岛\n' +
+    'idea\tn. 主意,意见,打算,想法\nidentification\tn. 鉴定，辨别\nidentity\tn. 身份，特征\nidiom\tn. 习语，成语\n' +
+    'if\tconj.如果,假使,是否,是不是\nignore\tv. 忽视，对…不理会\nill\tadj. 有病的；不健康的\nillegal\tadj. 非法的\n' +
+    'illness\tn. 疾病\nimagine\tvt. 想像，设想\nimmediate\tadj. 立即的，马上\nimmediately\tadv. 立即\n' +
+    'immigration\tn. 移民\nimport\tv.& n. 进口，输入\nimportance\tn. 重要性\nimportant\tadj. 重要的\n' +
+    'impossible\tadj. 不可能的\nimpress\tvt. 留下极深的印象\nimpression\tn. 印象，感觉\nimprove\tvt. 改进，更新\n' +
+    'in\tprep. 在…里(内)；在…；以… ad. 在家，在内，…\ninch\tn. 英寸\nincident\tn. 事件\ninclude\tvt. 包含，包括\n' +
+    'income\tn. 收入，所得\nincorrect\tadj. 不正确的，错误的\nincrease\tv. & n. 增加，繁殖\nindeed\tadj. 确实；实在\n' +
+    'independence\tn. 独立\nindependent\tadj. 独立的,有主见的\nindia\tn. 印度\n' +
+    'indian\tadj. （美洲）印地安人的； 印度人的 n. 印地安人；…\nindicate\tv.表明，象征，暗示\nindustry\tn. 工业，产业\n' +
+    'influence\tn.& v. 影响\ninform\tvt. 告诉； 通知\ninformation\tn. 信息\ninitial\tadj. 开始的，最初的\n' +
+    'injure\tvt. 损害，伤害\ninjury\tn. 受伤处\nink\tn. 墨水，油墨\ninland\tadj. 内陆的；内地的\ninn\tn. 小旅店；小饭店\n' +
+    'innocent\tadj. 无辜的，清白的\ninsect\tn. 昆虫\ninsert\tvt. 插入\ninside\tprep.在…里面 ad.在里面\n' +
+    'insist\tvi. 坚持；坚决认为\ninspect\tvt. 检查；检验；审视\ninspire\tvt. 鼓舞； 激励\ninstant\tadj. 瞬间；刹那\n' +
+    'instead\tadv. 代替，顶替\ninstitute\tn. (研究)所, 院，学院\ninstitution\tn. (慈善、宗教等性质的)公共机构； 学校\n' +
+    'instruct\tvt. 通知；指示；教\ninstruction\tn. 说明,须知;教导\ninstrument\tn. 乐器;工具,器械\ninsurance\tn. 保险\n' +
+    'insure\tvt. 给……保险\nintelligence\tn.智力,才智,智慧\nintend\tvt. 想要，打算\nintention\tn. 打算,计划,意图\n' +
+    'interest\tn. 兴趣，趣味;利息\ninteresting\tadj. 有趣的\ninternational\tadj. 国际的\ninternet\tn. 互联网，英特网\n' +
+    'interpreter\tn.翻译\ninterrupt\tv. 打扰，打断\ninterval\tn. 间歇；间隔\ninterview\tn.& vt.采访,会见,面试\n' +
+    'into\tprep. 到…里;向内；变成\nintroduce\tvt. 介绍\nintroduction\tn. 引进，介绍\ninvent\tvt. 发明，创造\n' +
+    'invention\tn. 发明，创造\ninventor\tn. 发明者，创造者\ninvitation\tn. 邀请，请帖\ninvite\tvt. 邀请，招待\n' +
+    'ireland\tn. 爱尔兰\nirish\tadj. 爱尔兰的，爱尔兰人的\niron\tn. 铁，熨斗 vt. 熨烫\nirrigate\tvt. 灌溉\n' +
+    'irrigation\tn. 灌溉\nisland\tn. 岛\nit\tpron. 它\nitalian\tadj. 意大利(人)的；意大利语的 n. 意大利人；意大…\n' +
+    'italy\tn. 意大利\nits\tpron. 它的\nitself\tpron. 它自己\njacket\tn. 短上衣，夹克衫\njam\tn. 果酱；阻塞\n' +
+    'january\tn. 1月\njapan\tn. 日本\njapanese\tadj. 日本的，日本人的，日语的 n. 日本人，日语\njar\tn. 罐子；坛子\njaw\tn. 下巴\n' +
+    'jazz\tn. 爵士音乐，爵士舞曲\njeans\tn. 牛仔裤\njeep\tn. 吉普车\njet\tn. 喷气式飞机；喷射（器）\njewel\tn. 宝石\n' +
+    'jewelry\tn. （总称）珠宝\njob\tn. （一份）工作\njog\tv. 慢跑\njoin\tv.参加,加入;连接;会合\njoke\tn. 笑话\n' +
+    'journalist\tn. 记者，新闻工作者\njourney\tn. 旅行，路程\njoy\tn. 欢乐，高兴，乐趣\njudge\tn. 裁判；审判员；法官vt. 判断，断定\n' +
+    'judgement\tn. 裁判\njuice\tn. 汁、液\njuicy\tadj. 多汁的；水分多的\njuly\tn. 7月\njump\tn. 跳跃；跳变 v. 跳跃；惊起；猛扑\n' +
+    'june\tn. 6月\njungle\tn. 丛林，密林\njunior\tadj. 初级的；年少的\njunk\tn. （口语）废品，破烂货\n' +
+    'just\tadv. 刚才；恰好；不过；仅 a. 公正的\njustice\tn. 正义；公正；司法\nkangaroo\tn. 大袋鼠\n' +
+    'keep\tv. 保持；保存；继续不断 vt. 培育，饲养\nkeeper\tn. （动物园中的）饲养员，看守人\nkettle\tn. (烧水用的)水壶\n' +
+    'key\tn. 钥匙;答案;键;关键\nkeyboard\tn. 键盘\nkick\tv.& n. 踢\nkid\tn. 小孩\nkill\tv. 杀死，弄死\n' +
+    'kilo\tn. 千克；千米\nkilogram\tn. 千克\nkilometre\te n. 千米（公里）\nkind\tn. 种;类 a. 善良,友好的\n' +
+    'kindergarten\tn. 幼儿园\nkindness\tn. 仁慈；善良\nking\tn. 国王\nkingdom\tn. 王国\nkiss\tn.& vt. 吻，亲吻\n' +
+    'kitchen\tn. 厨房\nkite\tn. 风筝\nknee\tn. 膝盖\nknife\t(复 knives) n.小刀;匕首;刀片\nknock\tn.& v. 敲；打；击 \n' +
+    'know\tv. 知道，了解；认识；懂得\nknowledge\tn. 知识，学问\nlab\t= laboratory n. 实验室\nlabour\tn. 劳动\n' +
+    'labourer\tn.体力劳动者\nlack\tn.& vt. 缺乏，缺少\nladder\tr n. 梯子\nlady\tn. 女士，夫人\nlake\tn. 湖\n' +
+    'lamb\tn. 羔羊\nlame\tadj. 跛的，瘸的，残废的\nlamp\tn. 灯，油灯；光源\nland\tn.陆地,土地v.登岸(陆)降落\nlanguage\tn. 语言\n' +
+    'lantern\tn. 灯笼；提灯\nlap\tn. (人坐时)膝部.(跑道的)一圈\nlarge\tadj. 大的；巨大的\nlaser\tn. 激光\n' +
+    'last\tadj. 最近刚过去;最后的ad.最近刚过去;最后地 n.…\nlate\tadj. 晚的,迟的ad.晚地,迟地\nlately\tadv. 最近，不久前\n' +
+    'later\tadj. 晚些的，迟些的\nlatest\tadj. 最近，最新的；最晚的\nlatter\tn.（两者之中的）后者\nlaugh\tn.& v. 笑，大笑；嘲笑\n' +
+    'laughter\tn. 笑； 笑声\nlaundry\tn. 洗衣店;要洗的衣服\nlavatory\tn. 便所，厕所\nlaw\tn. 法律，法令；定律\nlawyer\tn. 律师\n' +
+    'lay\tvt. 放，搁\nlazy\tadj. 懒惰的\nlead\tv. 领导，带领 n. 铅\nleader\tn. 领袖，领导人\nleading\tadj. 最主要的，第一位的\n' +
+    'leaf\tn. （树，菜）叶\nleague\tn. 联盟，社团\nleak\tvi. 漏； 渗\nlearn\tvt. 学，学习，学会\nlearned\tadj. 有才华的；博学的\n' +
+    'least\tn.最少，最少量\nleather\tn. 皮革\nleave\tv. 离开;把…留下，剩下\nlecture\tn. 讲课，演讲\n' +
+    'left\tadj. 左边的 ad.向左 n.左,左边\nleftover\tadj. 剩余,剩下的n.剩饭菜\nleg\tn. 腿；腿脚；支柱\n' +
+    'legal\tadj. 与法律有关的，法律的\nlemon\tn. 柠檬 a. 柠檬色(味)的\nlemonade\tn. 柠檬水\nlend\tvt.借(出),把…借给\n' +
+    'length\tn. 长，长度，段，节\nless\tadj. & ad. 少于,小于\nlesson\tn. 课；功课；教训\nlet\tvt. 让\nletter\tn. 信；字母\n' +
+    'level\tn. 水平线，水平\nliberate\tvt. 解放，使获自由\nliberation\tn. 解放\nliberty\tn. 自由\n' +
+    'librarian\tn. 图书管理员；（西方的）图书馆馆长\nlibrary\tn. 图书馆，图书室\nlicense\tn. 执照，许可证\nlid\tn. 盖子\n' +
+    'lie\tv. 躺;卧;平放;位于n.& vi. 谎言; 说谎\nlife\tn. 生命；生涯；生活；人生；生物\nlifetime\tn. 一生，终生\n' +
+    'lift\tv. 举起，抬起；（云、烟等）消散 n. （英）电梯\nlight\tn. 光，光亮；灯，灯光 vt. 点（火），点燃 a. 明…\nlightning\tn.闪电\n' +
+    'like\tprep. 像，跟…一样 vt. 喜欢，喜爱\nlikely\tadj. 很可能的\nlimit\tvt. 限制；减少\n' +
+    'line\tn. 绳索，线，排，行，线路 v. 画线于，（使）成行\nlink\tv. 连接； 联系\nlion\tn. 狮子\nlip\tn. 嘴唇\n' +
+    'liquid\tn. & a. 液体；液体的\nlist\tn. 一览表，清单\nlisten\tvi. 听,仔细听\nliterary\tadj. 文学的\n' +
+    'literature\tn. 文学\nlitre\tn. 升； 公升\nlitter\tv. 乱丢杂物\nlittle\tadj. 小的,少的 ad. 很少地, 稍许 n.没有多少…\n' +
+    'live\tvi. 生活;居住;活着 a. 活的,活着的;实况,现场（…\nlively\tadj. 活泼的;充满生气的\nliving\tadj. 活着的 n. 生计\n' +
+    'load\tn. 担子，货物\nloaf\tn. 一个面包\nlocal\tadj. 当地的；地方的\nlock\tn. 锁 vt. 锁，锁上\nlocust\tn. 蝗虫\n' +
+    'london\tn. 伦敦\nlonely\tadj. 孤独的，寂寞的\nlong\tadj. 长的，远 ad. 长久\nlook\tn. 看，瞧 v. 看，观看 v. link 看起来\n' +
+    'loose\tadj. 松散的； 宽松的\nlorry\tn.（英）运货汽车，卡车\nlose\tvt. 失去，丢失\nloss\tn. 丧失；损耗\nlot\tn. 许多，好些\n' +
+    'loud\tadj. 大声的\nloudly\tadv. 大声地\nloudspeaker\tn. 扬声器，喇叭\nlounge\tn. 休息厅；休息室\n' +
+    'love\tn.& vt. 爱；热爱;很喜欢\nlovely\tadj. 美好的，可爱的\nlow\tadj. & ad. 低；矮\nluck\tn. 运气，好运\n' +
+    'lucky\tadj. 运气好，侥幸\nluggage\tn. (总称)行李\nlunch\tn. 午餐，午饭\nlung\tn. 肺；肺脏\nmachine\tn. 机器\n' +
+    'mad\tadj. 发疯的；生气的\nmagazine\tn. 杂志\nmagic\tadj. 有魔力的\nmaid\tn. 女仆；侍女\nmail\tn. 邮政,邮递 v. (美)邮寄\n' +
+    'mailbox\tn. 邮筒；邮箱\nmain\tadj. 主要的\nmainland\tn. 大陆\nmajor\tadj. 较大的；主要的\nmajority\tn. 大多数 \n' +
+    'make\tvt.制造,做;使得 n. 样式；制造\nmale\tadj. 男（性）的；雄的\nman\tn. 成年男人;人类\nmanage\tv. 管理；设法对付\n' +
+    'manager\tn. 经理\nmankind\tn. 人类;（总称）人\nmanner\tn. 方式，态度，举止\nmany\tpron. 许多人（或物）a. 许多的\n' +
+    'map\tn. 地图\nmaple\tn. 枫树\nmarathon\tn. 马拉松\nmarble\tn. 大理石；玻璃弹子\nmarch\tn. 游行，行进\n' +
+    'mark\tn.标记 vt.标明,作记号于\nmarket\tn. 市场，集市\nmarriage\tn. 结婚，婚姻\nmarried\tadj. 已婚的\n' +
+    'marry\tv.（使）成婚，结婚\nmask\tn. 口罩；面罩(具)；遮盖物 v. 戴面具；掩饰；伪装\nmass\tn. 众多;大量;（复）群众\nmaster\tvt. 精通，掌握\n' +
+    'mat\tn. 垫子\nmatch\tvt. 使相配，使成对 n. 比赛，竞赛 n. 火柴\nmaterial\tn. 材料，原料\n' +
+    'matter\tn. 要紧事，要紧, 事情；问题 vi. 要紧，有重大关系\nmature\tadj. 成熟的\nmaximum\tadj. & n. 最大量(的)； 最大限度(的)\n' +
+    'may\tn. 5月\nmaybe\tadv. 可能，大概，也许\nme\tpron. 我（宾格）\nmeal\tn. 一餐（饭） \nmean\tvt.意思,意指\n' +
+    'meaning\tn. 意思，含意\nmeans\tn. 方法，手段；财产\nmeanwhile\tadv. 同时\nmeasure\tv. 量\nmeat\tn.（猪、牛、羊等的）肉\n' +
+    'medal\tn. 奖牌\nmedia\tn. 大众传播媒介\nmedical\tadj. 医学的，医疗的\nmedicine\tn. 药\nmedium\tn.媒体,中间的,中等的\n' +
+    'meet\tvt./ n. 遇见，见到 会；集会\nmeeting\tn.会,集会,会见,汇合点\nmelon\tn. （甜）瓜；瓜状物\nmember\tn. 成员，会员\n' +
+    'memorial\tn. 纪念馆\nmemorize\tv. 记忆\nmemory\tn. 回忆，记忆\nmend\tv. 修理，修补\nmental\tadj. 精神的；脑力的\n' +
+    'mentally\tadv. 精神上；智力上\nmention\tn. 提及；记载 vt. 提到，说起；提名表扬\nmenu\tn. 菜单\n' +
+    'merchant\tadj. 商业的；商人的 n. 商人；生意人\nmerciful\tadj. 仁慈的；宽大的\nmercy\tn. 怜悯\nmerely\tadv. 仅仅，只不过\n' +
+    'merry\tadj. 高兴的，愉快的\nmess\tn. 凌乱\nmessage\tn. 消息，音信\nmessy\tadj. 乱七八糟的\nmetal\tn. 金属 a. 金属制成的\n' +
+    'method\tn. 方法，办法\nmetre\tn. 米，公尺\nmexican\tadj. 墨西哥的\nmexico\tn. 墨西哥\nmicrocomputer\tn. 微机\n' +
+    'microscope\tn. 显微镜\nmicrowave\tn. 微波\nmidday\tn. 中午, 正午\nmiddle\tn. 中间;当中;中级的\nmidnight\tn. 午夜\n' +
+    'might\tv. aux. (may的过去式，助动词) 可能，也许，或许\nmild\tadj. 温和,暖和的,凉爽的\nmile\tn. 英里\nmilk\tn. 牛奶 vt. 挤奶\n' +
+    'million\tnum. 百万 n. 百万个（人或物）\nmillionaire\tn. 百万富翁\nmind\tn. 思想,想法 v.介意,关心\n' +
+    'mine\tn.矿藏,矿山vt.开采(矿物) pron. 我的\nmineral\tn. 矿物质，矿物\nminibus\tn. 小型公共汽车\nminimum\tadj. 最小的\n' +
+    'miniskirt\tn. 超短裙\nminister\tn. 部长；牧师\nministry\tn.（政府的）部\nminority\tn. 少数；少数民族\n' +
+    'minus\tprep. & a.负的，减去的\nminute\tn. 分钟;一会儿，瞬间\nmirror\tn. 镜子\nmiss\tvt. 失去，错过，缺\nmissile\tn 导弹\n' +
+    'mist\tn. 雾\nmistake\tn. 错误 vt. 弄错\nmistaken\tadj. 错误的\nmisunderstand\tv. 误会；不理解\nmix\tv. 混合，搅拌\n' +
+    'mixture\tn. 混合物\nmobile\tadj. 活动的，可移动的\nmodel\tn.模型,原形,范例,模范\nmodem\tn. 调制解调器\n' +
+    'modern\tadj. 现代的\nmodest\tadj. 谦虚的；谦逊的\nmoment\tn. 片刻，瞬间\nmonday\tn. 星期一\nmoney\tn. 钱；货币\n' +
+    'monitor\tn. （班级内的）班长；纠察生；监视器\nmonkey\tn. 猴子\nmonth\tn. 月，月份\nmonument\tn. 纪念碑，纪念物\n' +
+    'moon\tn. 月球；月光；月状物\nmop\tn. / v. 拖把 拖地\nmoral\tadj. 道德的 n.寓意,道德启示\n' +
+    'more\tadj. / ad.另外的；附加的；较多的再；另外；而且；…\nmorning\tn. 早晨，上午\nmoscow\tn. 莫斯科\nmoslem\tn. 伊斯兰教徒,回教徒\n' +
+    'mosquito\tn.蚊子\nmost\tadj. & ad.最多 n.大部分,大多数\nmother\tn. 母亲\nmotherland\tn. 祖国\n' +
+    'motivation\tn. （做事的）动机\nmotor\tn. 发动机，马达\nmotorbike\tn. 摩托车\nmotorcycle\tn. 摩托车\n' +
+    'motto\tn. 箴言，格言\nmountain\tn. 山，山脉\nmountainous\tadj. 多山的\nmourn\tvt. 哀痛； 哀悼\n' +
+    'mouse\tn. 鼠，耗子；（计算机）鼠标\nmoustache\tn. 小胡子\nmouth\tn. 嘴，口\nmouthful\tn. 满口，一口\n' +
+    'move\tv. 移动，搬动，搬家\nmovement\tn. 运动，活动\nmovie\tn.（口语）电影\nmuch\tadj. 许多的，大量的 ad. 非常；更加 n. 许多，…\n' +
+    'mud\tn. 泥, 泥浆\nmuddy\tadj. 泥泞的\nmultiply\tvt. 乘；使相乘\nmurder\tvt. 谋杀\nmuseum\tn. 博物馆，博物院\n' +
+    'mushroom\tn. 蘑菇\nmusic\tn. 音乐，乐曲\nmusical\tadj. 音乐的，爱好音乐的 n. 音乐片\nmusician\tn. 音乐家，乐师\n' +
+    'mustard\tn. 芥末，芥子粉\nmutton\tn. 羊肉\nmy\tpron. 我的\nmyself\tpron. 我自己\nnail\tn. 钉，钉子\n' +
+    'name\tn. 名字,姓名,名称 vt. 命名,名叫\nnarrow\tadj. 狭窄的\nnation\tn. 民族，国家\nnational\tadj. 国家的,全国性的，民族的\n' +
+    'nationality\tn. 国籍\nnationwide\tadv. 全国范围内的,全国性的\nnative\tadj. 本土的，本国的\nnatural\tadj. 自然的\n' +
+    'nature\tn. 自然, 性质，种类\nnavy\tn. 海军\nnear\tadj. 近的 ad. 附近，邻近 prep. 在……附近…\nnearby\tadj. 附近的\n' +
+    'nearly\tadv. 将近，几乎\nneat\tadj. 整洁的；灵巧的\nnecessary\tadj. 必需的，必要的\nneck\tn. 颈，脖子\n' +
+    'necklace\tn. 项链\nnecktie\tn. 领带，领花\nneed\tn. 需要,需求aux.& v.需要,必须\nneedle\tn. 针\n' +
+    'negotiate\tv.谈判，协商\nneighbour\tn. 邻居，邻人\nneighbourhood\tn. 四邻；邻近地区\nneither\tadj. （两者）都不;也不\n' +
+    'nephew\tn. 侄子，外甥\nnervous\tadj. 紧张不安的\nnest\tn. 巢；窝\nnet\tn. 网\nnetwork\tn. 网络，网状系统\n' +
+    'never\tadv. 决不，从来没有\nnew\tadj. 新的；新鲜的\nnews\tn. 新闻，消息\nnewspaper\tn. 报纸\n' +
+    'next\tadj. 最近的，紧挨着的，隔壁的；下一次 ad. 随后，…\nnice\tadj. 令人愉快;好的漂亮的\nniece\tn. 侄女，甥女\nnight\tn. 夜；夜间\n' +
+    'nine\tnum. 九\nnineteen\tnum. 十九\nninety\tnum. 九十\nninth\tnum. 第九\nno\tadv. 不,不是 a.没有,无,不\n' +
+    'noble\tadj. 高贵的，贵族的\nnobody\tn. 渺小人物 pron. 没有人，谁也不\nnod\tvi. 点头\nnoise\tn. 声音，噪声，喧闹声\n' +
+    'noisily\tadv. 喧闹地\nnoisy\tadj. 喧闹的，嘈杂的\nnone\tpron.无任何东西, 无一人\nnoodle\tn. 面条\nnoon\tn. 中午，正午\n' +
+    'nor\tconj. 也不\nnormal\tn.& a. 正常的（状态）\nnorth\tadj. 北的;朝北的;从北来的 ad.向（在,从）北方 …\n' +
+    'northeast\tn. 东北（部）\nnorthern\tadj. 北方的，北部的\nnorthwards\tadv. 向北\nnorthwest\tn. 西北\nnose\tn. 鼻\n' +
+    'not\tadv. 不，没\nnote\tn. 便条，笔记，注释；钞票，纸币；音符，音调 vt. 记…\nnotebook\tn. 笔记簿\n' +
+    'nothing\tn. 没有东西,没有什么 adv.一点也不；并不\nnotice\tn. 布告，通告；注意 vt. 注意，注意到\nnovel\tn. （长篇）小说\n' +
+    'novelist\tn. 小说家\nnovember\tn. 11月\nnow\tadv. 现在\nnowadays\tadv. 当今，现在\n' +
+    'nowhere\tadv. 任何地方都不,无处\nnuclear\tadj. 原子核的，原子能的，核动力的\nnumb\tadj. 麻木的，失去知觉的，迟钝的\n' +
+    'number\tn. 数,数字,号码,数量\nnurse\tn. 护士；保育员\nnursery\tn. 托儿所\nnursing\tn.(职业性的）保育,护理\n' +
+    'nut\tn.坚果,果仁(胡桃,栗子等)\nnutrition\tn. 营养，滋养\nnylon\tn. 尼龙\nobey\tv. 服从，顺从，听从\nobject\tn. 物，物体；宾语\n' +
+    'observe\tv. 观察，监视，观测\nobtain\tvt. 获得；得到\nobvious\tadj. 显然\noccupation\tn. 职业，工作\noccur\tvi. 发生\n' +
+    'ocean\tn. 海洋\noceania\tn. 大洋洲\noctober\tn. 10月\nof\tprep.(表所属,数量,) ….的\noff\tprep. 离开,脱离,（走）开\n' +
+    'offence\tn. 违法行为，犯罪\noffer\tn.& vt. 提供；建议\noffice\tn. 办公室\nofficer\tn. 军官;公务员,官员；警察，警官\n' +
+    'official\tn.（公司、团体或政府）官员 ,高级职员 a.官方,政府的\noffshore\tadj. 近海的\noften\tadv. 经常，常常\noh\tint. 哦！啊！\n' +
+    'oil\tn. 油\noilfield\tn.油田\nok\tadv. （口语）好,对,不错\nold\tadj. 老的，旧的\nolympics\tadj. & n. 奥林匹克\n' +
+    'omelette\tn. 煎蛋卷；煎蛋饼\non\tprep. 在…上（时），关于 ad. （穿，放…）上；接…\nonce\tn.& ad. 一次,一度,从前 conj. 一旦\n' +
+    'one\tpron. 一（个，只…）(pl. ones) num. 一\noneself\tpron. 自己；自身\nonion\tn. 洋葱；洋葱头\n' +
+    'only\tadj. 惟一的，仅有的 ad. 仅仅，只，才\nonto\tprep. 到…的上面\nopen\tadj. 开着的,开的 vt.开,打开\nopener\tn. 开具，启子\n' +
+    'opening\tn. 开放，口子\nopera\tn. 歌剧\noperate\tv. 做手术，运转；实施，负责, 经营，管理\noperation\tn. 手术，操作\n' +
+    'operator\tn. 接线员\nopinion\tn. 看法，见解\noppose\tvt. 反对；反抗\nopposite\tn. 相反，对面 a. 相反的，对面的\n' +
+    'optimistic\tadj. 乐观的\noptional\tadj. 可选择的，选修的\nor\tconj. 或；就是；否则\noral\tadj. 口述的，口头上的\n' +
+    'orange\tn. 橘子，橙子，橘汁 a. 橘色的，橙色的\norbit\tn.（天体等的）运行轨道\norder\tn. 顺序\nordinary\tadj. 普通的，平常的\n' +
+    'organ\tn. （人，动物）器官\norganise\tvt. 组织\norganiser\tn. 组织者\norganization\tn. 组织，机构\n' +
+    'origin\tn. 起源，由来\nother\tpron. 别人，别的东西 a. 别的,另外的\notherwise\tadv. 要不然,否则,另样\nottawa\tn. 渥太华\n' +
+    'ouch\tint（突然受痛时叫声）哎哟\nought\tv.& aux.应该，应当\nour\tpron.我们的\nours\tpron.我们的\n' +
+    'ourselves\tpron. 我们自己\nout\tadv. 出外;在外,向外;熄\noutcome\tn. 结果，效果\noutdoors\tadv. 在户外, 在野外\n' +
+    'outer\tadj. 外部的，外面的\noutgoing\tadj. 爱交际的,外向的\nouting\tn. 郊游，远足\noutline\tn. 概述，略述\n' +
+    'output\tn. 产量，输出量\noutside\tn. 外面 ad. 在外面；向外面 prep. 在…外面\noutspoken\tadj. 直率，坦诚\n' +
+    'outstanding\tadj. 优秀的，杰出的\noutward\tadv. 向外的，外出的\noval\tn.& adj.椭圆；椭圆形的\n' +
+    'over\tprep. 在…上方,越过,遍及 ad. 翻倒,遍布,越过…\novercoat\tn. 大衣\novercome\tv. 克服，解决\n' +
+    'overhead\tadj. 在头顶上;架空的\noverlook\tv. 忽略,不予理会\noverweight\tadj. 太胖的,超重的\nowe\tvt. 欠（债等）\n' +
+    'own\tadj. 自己的 v. 拥有,所有\nowner\tn. 物主，所有人\nownership\tn. 所有制\nox\tn. 牛；公牛\noxygen\tn. 氧；氧气\n' +
+    'pace\tn. 步子；节奏\npacific\tadj. 太平洋的\npack\tn. 包,捆;（猎犬、野兽的）一群 v.(为运输或储存而)…\n' +
+    'package\tn. （尤指包装好或密封的容器）一包，一袋，一盒\npacket\tn. 小包裹，袋\npaddle\tn. 桨状物，蹼\npage\tn. 页，页码\n' +
+    'pain\tn. 疼痛，疼\npainful\tadj. 使痛的，使痛苦的\npaint\tn.油漆 vt.油漆,粉刷,绘画\npainter\tn. 绘画者,（油）画家\n' +
+    'painting\tn. 油画，水彩画\npair\tn. 一双，一对\npalace\tn. 宫，宫殿\npale\tadj. 苍白的，灰白的\npan\tn. 平底锅\n' +
+    'pancake\tn. 薄煎饼\npanda\tn. 熊猫\npanic\tadj. / v.惊慌,恐慌,惶恐不安\npaper\tn. 纸；报纸\n' +
+    'paperwork\tn. 日常文书工作\nparagraph\tn. （文章的）段落\nparallel\tn. 极其相似的人,纬线\nparcel\tn. 包裹\n' +
+    'pardon\tn. 原谅,宽恕,对不起\nparent\tn. 父(母)，双亲\nparis\tn. 巴黎\npark\tn. 公园\nparking\tn. 停车\n' +
+    'parrot\tn. 鹦鹉\npart\tn. 部分；成分；角色；部件；零件 a. 局部的；部分的 …\nparticipate\tv. 参加，参与\n' +
+    'particular\tadj. 特殊的，个别的\npartly\tadv. 部分地,在一定程度上\npartner\tn. 搭档，合作者\nparty\tn. 聚会，晚会；党派\n' +
+    'pass\tvt. 传，递；经过；通过\npassage\tn. （文章等的）一节，一段；通道；走廊\npassenger\tn. 乘客，旅客\npassive\tadj. 被动的\n' +
+    'passport\tn. 护照\npast\tadv. 过 n.过去，昔日，往事 prep. 过…，走过…\npatent\tn.专利权，专利证书\npath\tn. 小道，小径\n' +
+    'patience\tn. 容忍；耐心\npatient\tn. 病人\npattern\tn. 式样\npause\tn.& vi. 中止，暂停；停止\n' +
+    'pay\t(paid, paid) v. 付钱，给…报酬 n. 工资\npea\tn. 豌豆\npeace\tn. 和平\npeaceful\tadj. 和平的，安宁的\n' +
+    'peach\tn. 桃子\npear\tn. 梨子，梨树\npeasant\tn. 农民；佃农\npedestrian\tn. 步行者，行人\npen\tn. 钢笔，笔\n' +
+    'pencil\tn. 铅笔\npenny\t(英复pence) n. （英）便士；美分\npension\tn. 养老金\npeople\tn. 人，人们；人民\n' +
+    'pepper\tn. 胡椒粉\nper\tprep. 每，每一\npercent\tn. 百分之……\npercentage\tn. 百分率\nperfect\tadj. 完美的，极好的\n' +
+    'perform\tv. 表演，履行；行动\nperformance\tn. 演出，表演\nperformer\tn. 表演者，执行者\nperfume\tn. 香水\n' +
+    'perhaps\tadv. 可能，或\nperiod\tn. 时期，时代\npermanent\tadj. 永久的，永恒的\npermission\tn. 允许,许可,同意\n' +
+    'permit\tvt.许可,允许;执照 n.许可证\nperson\tn. 人\npersonal\tadj. 个人的，私人的\npersonally\tadv. 就自己而言\n' +
+    'personnel\tn. 全体人员，职员\npersuade\tvt. 说服，劝说\npest\tn. 害虫\npet\tn. 宠物，爱畜\npetrol\tn. 石油\n' +
+    'phenomenon\tn. 现象\nphotograph\tn. 照片\nphotographer\tn. 摄影师\nphrase\tn. 短语；习惯用语\n' +
+    'physical\tadj. 身体的；物理的\nphysician\tn.(有行医执照的)医生\nphysicist\tn. 物理学家\nphysics\tn. 物理（学）\n' +
+    'pianist\tn. 钢琴家\npiano\tn. 钢琴\npick\tv. 拾起，采集；挑选\npicnic\tn.& v. 野餐\npicture\tn. 图片，画片，照片\n' +
+    'pie\tn. 甜馅饼\npiece\tn. 一块（片，张，件…）\npig\tn. 猪\npile\tn. 堆\npill\tn. 药丸，药片\npillow\tn. 枕头\n' +
+    'pilot\tn. 飞行员\npin\tn. 别针 v. 别住, 钉住\npine\tn. 松树\npineapple\tn. 菠萝\npink\tadj. 粉红色的\n' +
+    'pint\tn.（液量单位）品脱\npioneer\tn. 先锋，开拓者\npipe\tn. 管子，输送管\npity\tn. 怜悯，同情\n' +
+    'place\tn. 地方，处所 v. 放置，安置，安排\nplain\tadj. 家常的； 普通的\nplan\tn.& v. 计划，打算\nplane\tn. 飞机\n' +
+    'planet\tn. 行星\nplant\tvt. 种植，播种 n. 植物\nplastic\tadj. 塑料的\nplate\tn. 板；片；牌；盘子；盆子\n' +
+    'platform\tn. 讲台,(车站的)月台\nplay\tv. 玩；打（球）；游戏；播放 n. 玩耍，戏剧\nplayer\tn. 比赛者，选手\n' +
+    'playground\tn. 操场，运动场\nplaymate\tn. 玩伴\nplayroom\tn. 游戏室\npleasant\tadj. 令人愉快的，舒适的\n' +
+    'please\tv. 请,使人高兴,使人满意\npleased\tadj. 高兴的\npleasure\tn. 高兴，愉快\nplenty\tn. 充足，大量\n' +
+    'plot\tv. / n. 故事情节，密谋\nplug\tn. 塞子 vt.（用塞子）把…塞住\nplus\tprep.加，加上\npocket\tn. （衣服的）口袋\n' +
+    'poem\tn. 诗\npoet\tn. 诗人\npoint\tv. 指，指向 n. 点；分数\npoison\tn. 毒药\npoisonous\tadj. 有毒的，致命的\n' +
+    'pole\tn. 杆，电线杆；\npolice\tn. 警察，警务人员\npoliceman\tn.警察,巡警policewoman ( -women) …\n' +
+    'policy\tn. 政策，方针，原则\npolish\tv.擦亮 n.擦光剂,亮光剂\npolite\tadj. 有礼貌的,有教养的\npolitical\tadj. 政治的\n' +
+    'politician\tn. 政治家\npolitics\tn. 政治\npollute\tvt. 污染\npollution\tn. 污染\npond\tn. 池塘\n' +
+    'pool\tn. 水塘，水池\npoor\tadj. 贫穷；可怜；不好的,差的\npopcorn\tn. 爆米花\npopular\tadj. 流行,大众,受欢迎的\n' +
+    'population\tn. 人口，人数\npork\tn. 猪肉\nporridge\tn. 稀饭，粥\nport\tn. 港口，码头\nportable\tadj. 手提的，便携式的\n' +
+    'porter\tn. （火车站或旅馆处的）搬运工\nposition\tn. 位置\npossess\tvt. 占有；拥有\npossession\tn. 所有，拥有；财产，所有物\n' +
+    'possibility\tvn. 可能，可能性\npossible\tadj. 可能的\npossibly\tadv. 可能地，也许\n' +
+    'post\tn. 邮政，邮寄，邮件 v. 投寄； 邮寄\npostage\tn. 邮费\npostbox\tn. 邮箱\npostcard\tn. 明信片\n' +
+    'postcode\tn. （英）邮政编码\nposter\tn. (贴在公共场所的大型)招贴；广告(画)\npostman\tn. 邮递员\npostpone\tvt. 推迟，延期\n' +
+    'pot\tn. 锅，壶，瓶，罐\npotato\tn. 土豆，马铃薯\npotential\tadj. 潜在的，可能的\npound\tn. 磅；英镑\npour\tvi. 倾泻，不断流出\n' +
+    'powder\tn. 粉，粉末\npower\tn. 力，动力，电力\npowerful\tadj. 效力大的，强有力的，强大的\npractical\tadj. 实际的，适用的\n' +
+    'practice\tn. 练习\nprairie\tn. 大草原\npraise\tn.& vt.赞扬，表扬\npray\tv. 祈祷；祈求\nprayer\tn. 祈祷\n' +
+    'precious\tadj. 宝贵的, 珍贵的\nprecise\tadj. 准确,精确的,确切的\npredict\tv. 预言，预告，预报\nprefer\tvt.宁愿（选择）,更喜欢\n' +
+    'preference\tn. 选择，趋向\npregnant\tadj. 怀孕的\nprejudice\tn. 偏见，成见\npremier\tn. 首相，总理\n' +
+    'preparation\tn. 准备\nprepare\tvt. 准备,预备,调制,配制\nprescription\tn. 处方，药方\n' +
+    'present\tadj. 出现的，出席的 n. 礼物，赠品 vt. 呈奉，…\npresentation\tn. 演示，演出\npreserve\tv.保护，保留，保存\n' +
+    'president\tn. 总统；主席\npress\tvt.压,按 n.新闻界,出版社\npressure\tn. 压迫,压力,压强\npretend\tvi. 假装，装作\n' +
+    'pretty\tadj. 漂亮的，俊俏的\nprevent\tvt. 防止, 预防\npreview\tvt. 预习;试演;预展\nprice\tn. 价格，价钱\n' +
+    'pride\tn. 自豪，骄傲\nprimary\tadj. 初等的；初级的\nprimitive\tadj. 原始的，远古的\nprinciple\tn. 道德原则，法则\n' +
+    'print\tvt. 印刷\nprinter\tn. 打印机\nprinting\tn. 印刷，印刷术\nprison\tn. 监狱\nprisoner\tn. 囚犯\n' +
+    'private\tadj. 私人的\nprivilege\t特权，特殊待遇\nprize\tn. 奖赏，奖品\nprobable\tadj. 很可能,很有希望的\n' +
+    'probably\tadv. 很可能，大概\nproblem\tn. 问题，难题\nprocedure\tn. 程序,手续,待遇\nprocess\tn./ v. 过程,加工,处理\n' +
+    'produce\tvt. 生产；制造\nproduct\tn. 产品，制品\nproduction\tn. 生产；制造\n' +
+    'profession\tn.（需要有高等教育学位的）职业（如医生或律师）\nprofessor\tn. 教授\nprofit\tn. 利润，收益\nprogramme\tn. 节目；项目\n' +
+    'progress\tn.进步,上进vi.进展,进行\nprohibit\tv. 禁止\nproject\tn. 工程\npromise\tn.& vi. 答应，允诺\n' +
+    'promote\tv.促进,推动,促销,晋升\npronounce\tvt. 发音\npronunciation\tn. 发音\nproper\tadj. 恰当的，合适的\n' +
+    'properly\tadv. 适当地\nprotect\tvt. 保护\nprotection\tn. 保护\nproud\tadj. 自豪的；骄傲的\nprove\tvt. 证明\n' +
+    'provide\tvt. 提供\nprovince\tn. 省\npsychology\tn. 心理学\npub\tn. 酒店，酒吧\npublic\tadj. 公共,公众的 n. 公众\n' +
+    'publicly\tadv. 当众；公开地\npublish\tt. 出版，发行\npull\t拉，拖 n. 拉力，引力\npulse\tn. 脉搏，（光、能量、波等的）脉动，搏动\n' +
+    'pump\tt. 用泵抽水\npunctual\tadj. 准时的\npunctuate\tv. 加标点\npunctuation\tn. 标点符号\npunish\tv. 惩罚，处罚\n' +
+    'punishment\tn. 惩罚\npupil\tn. （小）学生\npurchase\tv. 购买，采购\npure\tadj. 纯的, 不掺杂的\n' +
+    'purple\tn. / a. 紫色\npurpose\tn. 目的，意图\npurse\tn. 钱包\npush\tn.& v. 推\nput\tvt. 放，摆\n' +
+    'puzzle\tn. 难题,（字、画）谜\npuzzled\tadj. 迷惑的，困惑的\npyramid\tn. 角锥形，金字塔\nquake\tn.& v. 震动，颤抖\n' +
+    'qualification\tn. 资格，学历\nquality\tn. 质量，性质\nquantity\tn. 量，数\nquarrel\tvi. 争吵，吵架\n' +
+    'quarter\tn. 四分之一，一刻钟\nqueen\tn. 皇后，女王\nquestion\tvt. 询问 n. 问题\nquestionnaire\tn. 调查表，问卷\n' +
+    'queue\tn. 行列，长队\nquick\tadj. 快；敏捷的；急剧的 ad. 快地；敏捷地；急剧地\nquiet\tadj. 安静的；寂静的\nquilt\tn. 被子；被状物\n' +
+    'quit\tv. 离任，离校，戒掉\nquite\tadv. 完全，十分\nquiz\tn. 测验，小型考试\nrabbit\tn. 兔，家兔\n' +
+    'race\tn. 种族，民族 v. （速度）竞赛，比赛 n. 赛跑，竞赛\nracial\tadj. 种族的\nradiation\tn. 放射，放射物\n' +
+    'radio\tn. 无线电，收音机\nradioactive\tadj. 放射性的\nradium\tn. 镭\nrag\tn. 破布，抹布\nrail\tn. 铁路\n' +
+    'railway\tn. 铁路；铁道\nrain\tn. 雨，雨水 vi. 下雨\nrainbow\tn. 虹，彩虹\nraincoat\tn. 雨衣\n' +
+    'rainfall\tn. 一场雨； 降雨量\nrainy\tadj. 下雨的；多雨的\nraise\tvt. 使升高； 饲养\nrandom\tadj. 随意,未经事先考虑的\n' +
+    'range\tn./ v. 变化，变动，排序\nrank\tn. 职衔，军衔\nrapid\tadj. 快的，迅速的\nrare\tadj. 罕见的，稀有的\nrat\tn. 老鼠\n' +
+    'rate\tn./ v. 率，评估，评价\nrather\tadv. 相当，宁可\nraw\tadj. 生的,未煮过的,未加工的\nray\tn. 光辉，光线\nrazor\tn. 剃须刀\n' +
+    'reach\tv. 到达，伸手(脚)够到\nreact\tv. 回应，过敏，起物理，化学反应\nread\tv. 读；朗读\nreading\tn. 阅读；朗读\n' +
+    'ready\tadj. 准备好的\nreal\tadj. 真实的，确实的\nrealise\tvt.认识到,实现\nreality\tn. 现实\n' +
+    'really\tadv. 真正地；到底；确实\nreason\tvi.评理,劝说n.理由,原因\nreasonable\tadj. 合乎情理的\nrebuild\tvt. 重建\n' +
+    'receipt\tn. 收据\nreceive\tv. 收到，得到\nreceiver\tn. 电话听筒\nrecent\tadj. 近来的，最近的\nreception\tn. 接待\n' +
+    'receptionist\tn. 接待员\nrecipe\tn. 烹饪法，食谱\nrecite\tv. 背诵\nrecognise\tvt.认出\nrecommend\tv. 推荐\n' +
+    'record\tn. 记录；唱片\nrecorder\tn. 录音机\nrecover\tvi. 痊愈；恢复\nrecreation\tn. 娱乐，消遣\n' +
+    'rectangle\tn. & a.长方形,长方形的\nrecycle\tvt. 回收；再循环\nred\tn. 红色 a.红色的\nredirect\tvt. 使改变，使转移\n' +
+    'reduce\tvt. 减少，缩减\nrefer\tvi. 谈到,提到,涉及,有关\nreferee\tn. 裁判，仲裁，调解员\nreference\tn.提到,涉及,谈及,查询\n' +
+    'reflect\tv. 反映，反射\nreform\tv./ n. 改革，改进，改良\nrefresh\tv. 使恢复精力，提醒\n' +
+    'refreshments\tn. 点心，便餐；(会议后的)简单茶点招待\nrefrigerator\tn. 冰箱\nrefusal\tn. 拒绝\nrefuse\tvi. 拒绝，不愿\n' +
+    'regard\tv. 把……看作\nregardless\tadj. 不顾，不加理会\nregards\tn. 问候，致意\n' +
+    'register\tn. 登记簿，花名册，注册员 v. 登记，注册\nregret\tn./ vt.可惜,遗憾;痛惜;哀悼\nregular\tadj. 规则的，经常\n' +
+    'regulation\tn. 规则，规章\nreject\tv. 拒绝\nrelate\tvi. 有关； 涉及\nrelation\tn. 关系； 亲属\n' +
+    'relationship\tn. 关系\nrelative\tn. 亲属，亲戚\nrelax\tv. （使）放松，轻松\nrelay\tn. 接力，接替人，中转 v. 接替，补充；转运\n' +
+    'relevant\tadj. 紧密相关,有意义的\nreliable\tadj. 可信赖的，可依靠的\nrelief\tn. 轻松,解脱,缓和,救济\nreligion\tn. 宗教\n' +
+    'religious\tadj. 宗教的\nrely\tv. 依赖，依靠\nremain\tvt.余下,留下vi.保持,仍是\nremark\tn. 陈述；话；议论\n' +
+    'remember\tv. 记得，想起\nremind\tvt. 提醒，使记起\nremote\tadj. 偏远的，偏僻的\nremove\tvt. 移动，拿走，脱掉（衣服等）\n' +
+    'rent\tn.& v. 租金\nrepair\tn.& vt. 修理；修补\nrepairs\tn. 修理工作\nrepeat\tvt. 重说，重做\nreplace\tvt. 取代\n' +
+    'reply\tn. 回答，答复\nreport\tn.& v. 报道，报告\nreporter\tn. 记者，新闻通讯员\nrepresent\tvt. 代表\n' +
+    'representative\tn.代表,典型人物\nrepublic\tn. 共和国\nreputation\tn. 名声，名誉\nrequest\tn. 请求，要求的事物\n' +
+    'require\tvt. 需求；要求\nrequirement\tn. 需要； 要求； 必要的条件\nrescue\tvt. 营救，援救\nresearch\tn. 研究，调查\n' +
+    'resemble\tv. （不用进行时）像，看起来像\nreservation\tn. 预定\nreserve\tn. & v. 储备；预定\nresign\tv. 辞职\n' +
+    'resist\tv. 抵抗；挡开\nrespect\tvt.& n. 尊敬，尊重\nrespond\tv.回答,回应,作出反应\nresponsibility\tn. 责任，负责\n' +
+    'rest\tn. 休息；剩余的部分，其余的人（物） vi. 休息，歇息\nrestaurant\tn. 饭馆, 饭店\nrestrict\tv. 限制\n' +
+    'restriction\tn. 限制，约束\nresult\tn. 结果，效果\nretell\tvt. 重讲，重复，复述\nretire\tv. 退休\nreturn\tv. 归还\n' +
+    'reuse\tvt. 重新使用；循环使用\nreview\tvt. 重新调查； 回顾； 复习 n. 复查；复习；评论\nreviewer\tn. 评论者；书评家\n' +
+    'revision\tn. 复习，温习\nrevolution\tn. 革命，变革\nreward\tn. 奖赏\nrewind\tv. 回转（磁带等）\nrewrite\tvt. 重写\n' +
+    'rhyme\tn./ v. 押韵\nrice\tn. 稻米；米饭\nrich\tadj. 富裕的，有钱的\nrid\tvt. 使摆脱\nriddle\tn. 谜(语)\n' +
+    'ride\tv. 骑（马、自行车）；乘车 n. 乘车旅行\nridiculous\tadj. 荒谬的，愚蠢的\nright\tn.权利 a.对,正确的 ad. 正确地,恰恰,完全地 a…\n' +
+    'rigid\tadj. 死板的,僵硬的,固执的\nring\tv. （钟、铃等）响；打电话 n. 电话，铃声 n. 环形…\nripe\tadj. 成熟的，熟的\nripen\tv. 成熟\n' +
+    'rise\tvi. 上升，上涨\nrisk\tn./ v. 危险，风险，冒险\nriver\tn. 江；河；水道；巨流\nroad\tn. 路，道路\nroast\tv. 烤（肉）\n' +
+    'rob\tv. 抢夺，抢劫\nrobot\tn. 机器人\nrock\tn.岩石,大石头vt. 摇,摇晃\nrocket\tn. 火箭\nrole\tn. 角色\n' +
+    'roll\tv. 滚动, 打滚 n. 面包圈，小圆面包；卷状物\nroller\tn. 滚筒； 辊\nroof\tn. 屋顶，顶部\nroom\tn. 房间,室;空间;地方\n' +
+    'rooster\tn. (美)公鸡\nroot\tn. 根，根源，起源\nrope\tn. 绳，索\nrose\tn. 玫瑰花\nrot\tvi. 烂； 腐败\n' +
+    'rough\tadj. 粗糙的，粗略的\nround\tadv. 转过来 prep. 环绕一周，围着 a.圆的；球…\nroundabout\tadj. & n. 绕道的，不直接的；转盘路\n' +
+    'routine\tn. 常规,正常顺序,无聊\nrow\tn.（一）排,（一）行 v.划船\nroyal\tadj. 皇家的，王室的，国王的，女王的\n' +
+    'rubber\tn. 橡胶； 合成橡胶\nrubbish\tn. 垃圾； 废物\nrude\tadj. 无理的, 粗鲁的\nrugby\tn. （英）橄榄球\n' +
+    'ruin\tvt. （使）毁坏；（使） 毁灭 n. (复) 废墟；遗迹\nrule\tn. 规则,规定 vt.统治,支配\nruler\tn. 统治者；直尺\n' +
+    'run\tvi. 跑，奔跑；（颜色）褪色\nrunner\tn. 赛跑者；操作者；滑行装置\nrunning\tn. 跑步\nrush\tvi. 冲，奔跑\n' +
+    'russia\tn. 俄罗斯，俄国\nrussian\tadj. 俄国人的，俄语的 n. 俄国人，俄语\nsacred\tadj. 害怕，恐惧，担心\nsacrifice\tvt. 牺牲\n' +
+    'sad\tadj. （使人）悲伤的\nsadness\tn. 悲哀，忧伤\nsafe\tadj. 安全的 n. 保险柜\nsafety\tn. 安全，保险\n' +
+    'sail\tn. 航行 v. 航行，开航\nsailing\tn. 航海\nsailor\tn. 水手，海员\nsalad\tn. 色拉（西餐中的一种菜）\n' +
+    'salary\tn. 薪金，薪水\nsale\tn. 卖，出售\nsalesgirl\tn. 女售货员\nsalesman\tn. 男售货员\nsaleswoman\tn. 女售货员\n' +
+    'salt\tn. 盐\nsalty\tadj. 盐的，咸的，含盐的\nsalute\tv.& n. 敬礼\nsame\tn.同样的事a同样的,同一\nsand\tn. 沙，沙子\n' +
+    'sandwich\tn.三明治（夹心面包片）\nsatellite\tn. 卫星\nsatisfaction\tn. 满意\nsatisfy\tvt. 满足，使满意\n' +
+    'saturday\tn. 星期六\nsauce\tn. 酱汁； 调味汁\nsaucer\tn. 茶碟，茶托，小圆盘\nsausage\tn. 香肠，腊肠\n' +
+    'savage\tn. 野蛮人，未开化的人\nsave\tvt. 救，挽救，节省\nsay\tvt. 说，讲\nsaying\tn. 说，俗话，谚语\nscan\tv. 略读，浏览，扫描\n' +
+    'scar\tn. 伤疤，伤痕\nscare\tv. 使害怕，使恐惧\nscarf\tn. 领巾，围巾\nscene\tn. （戏剧、电影等的）一场，场景，布景\n' +
+    'scenery\tn. 风景，景色，风光\nsceptical\tadj. 怀疑的\nschedule\tn. 工作计划，日程安排v. 安排时间，预定\nscholar\tn. 学者\n' +
+    'scholarship\tn. 奖学金\nschool\tn. 学校\nschoolbag\tn. 书包\nschoolmate\tn. 同校同学\nscience\tn. 科学，自然科学\n' +
+    'scientific\tadj. 科学的\nscientist\tn. 科学家\nscissors\tn. 剪刀，剪子\nscold\tvt. 责骂\n' +
+    'score\tn.& v. 得分，分数\nscores\tn. 许多，很多\nscotland\tn. 苏格兰\nscottish\tadj. 苏格兰（人）的 n. 苏格兰人\n' +
+    'scratch\tv./ n. 划破，划痕，划伤\nscream\tn. 尖叫\nscreen\tn. 幕，荧光屏\nsculpture\tn. 雕塑（术），雕刻（术），雕刻作品，雕像\n' +
+    'sea\tn. 海，海洋\nseagull\tn. 海鸥\nseal\tn. 海豹\nseaman\tn. 水手； 海员\nsearch\tn.& v. 搜寻，搜查\n' +
+    'seashell\tn. 海贝\nseaside\tn. 海滨\nseason\tn. 季；季节\nseat\tn. 座位，座\nseaweed\tn. 海草,海藻,海带\n' +
+    'second\tn.秒 num.第二a.第二的\nsecondhand\tn. 二手货; 旧货\nsecret\tn. 秘密，内情\nsecretary\tn. 秘书；书记\n' +
+    'section\tn. 段，部分，部门\nsecure\tadj. 安心的,有把握的,牢靠的\nsecurity\tn. 安全，平安\nsee\tvt. 看见，看到；领会；拜会\n' +
+    'seed\tn. 种子\nseek\tvt.试图;探寻\nseem\tv. 似乎，好像\nseize\tvt. 抓住(时机等)\nseldom\tadv. 很少，不常\n' +
+    'select\tvt. 选择，挑选，选拔\nself\tn. 自己，自我，自身\nselfish\tadj. 自私的\nsell\tv. 卖，售\nsemicircle\tn. 半圆\n' +
+    'send\tv. 打发，派遣；送，邮寄\nsenior\tadj. 年长的,资深的,高年级的 n. 上级，长辈，高年…\nsense\tn. 感觉，意识\n' +
+    'sensitive\tadj. 体贴的,善解人意的\nsentence\tn. 句子\nseparate\tv. 使分开，使分离a. 单独的，分开的\n' +
+    'separately\tadv. 单独地，各自地\nseparation\tn. 分离，隔离\nseptember\tn. 9月\nserious\tadj. 严肃的,严重的,认真的\n' +
+    'servant\tn. 仆人，佣人\nserve\tvt. 招待（顾客等）,服务\nservice\tn. 服务\nsession\tn.一场,一节,一段时间\n' +
+    'set\tvt. 释放，安置 n. 装备，设备\nsettle\tvi. 安家，定居\nsettlement\tn. 新拓居地；（美）部落，村落\nsettler\tn. 移居者，开拓者\n' +
+    'seven\tnum. 七\nseventeen\tnum. 十七\nseventh\tnum. 第七\nseventy\tnum. 七十\n' +
+    'several\tpron. 几个,数个 a.若干\nsevere\tadj. 极为恶劣,十分严重的\nsew\tvi. 缝, 缝制；缝补；缝纫\nsex\tn. 性，性别\n' +
+    'shabby\tadj. 破旧,破烂,衣衫褴褛的\nshade\tn. 阴凉处，树荫处\nshadow\tn. 影子, 阴影\nshake\tv. （使）动摇，震动\n' +
+    'shall\tv. aux. （表示将来）将要，会；……好吗\nshallow\tadj. 浅的,不深的,肤浅的\nshame\tn. 遗憾的事；羞愧\nshanghai\tn. 上海\n' +
+    'shape\tn. 形状，外形 v. 使成型，制造，塑造\nshare\tvt. 分享，共同使用\nshark\tn. 鲨鱼\nsharp\tadj. 锋利的，尖的\n' +
+    'sharpen\tv. （使）变锐利，削尖\nsharpener\tn. 削尖用的器具\nshave\tv. 刮（脸，胡子）\nshaver\tn. 电动剃须刀\nshe\tpron. 她\n' +
+    'sheep\tn. （绵）羊；羊皮；驯服者\nsheet\tn. 成幅的薄片，薄板\nshelf\tn. 架子；搁板；格层；礁；陆架\nshelter\tn. 掩蔽；隐蔽处\n' +
+    'shine\tn. 光泽；光彩；阳光；晴天；光(亮)\nship\tn. 船，轮船 vi. 用船装运\nshirt\tvn. 男衬衫\nshock\tvt. 使震惊\nshoe\tn. 鞋\n' +
+    'shoot\t(shot, shot) vt. 射击，射中，发射 n. …\nshooting\tn. 射击\nshop\tvi. 买东西 n. 商店,车间\n' +
+    'shopkeeper\tn. 店主，零售商人\nshopping\tn. 买东西\nshore\tn. 滨，岸\nshort\tadj. 短的；矮的\n' +
+    'shortcoming\tn. 缺点，短处\nshortly\tadv. 不久\nshorts\tn. 短裤；运动短裤\nshot\tn. 射击，开枪，开炮，射击声；子弹\n' +
+    'should\tv. mod. 应当，应该，会 v. aux.会,应该（s…\nshoulder\tn. 肩膀,(道路的)路肩\nshout\tn.& v. 喊，高声呼喊\n' +
+    'show\tn. 展示,展览（会）;演出\nshower\tn. 阵雨；淋浴\nshrink\tv. 缩小，收缩，减少\nshut\tv. / n. 关上，封闭；禁闭；\n' +
+    'shuttle\tvn. 合拢 （往返与两个定点之间的）（火车汽车飞机）班车…\nshy\tadj. 害羞的\nsick\tadj. 有病,患病的,（想）呕吐\n' +
+    'sickness\tn. 疾病\nside\tn. 边，旁边，面，侧面\nsideway\tn. 岔路，旁路\nsideways\tadv. 斜向一边的\nsigh\tvi. 叹息；叹气\n' +
+    'sight\tn. 情景，风景；视力\nsightseeing\tn. 游览，观光\nsign\tn. 符号，标记\nsignal\tn. 信号，暗号\nsignature\tn. 签名\n' +
+    'significance\tn. 重要性，意义\nsilence\tn. 安静，沉默\nsilent\tadj. 无声的，无对话的\nsilk\tn. （蚕）丝，丝织品\n' +
+    'silly\tadj. 傻的，愚蠢的\nsilver\tn. 银\nsimilar\tadj. 相似的，像\nsimple\tadj. 简单的，简易的\n' +
+    'simplify\tv. 使简化，使简易\nsimply\tadv. 简单地,(加强语气)的确\nsince\tadv. 从那时以来 conj. 从…以来，…以后，由于 …\n' +
+    'sincerely\tadv. 真诚地\nsing\tv. 唱，唱歌\nsinger\tn. 歌唱家，歌手\nsingle\tadj. 单一的，单个的\nsink\tn. 洗涤槽；污水槽\n' +
+    'sir\tn. 先生；阁下\nsister\tn. 姐；妹\nsit\tvi. 坐\nsituation\tn. 形势，情况\nsix\tnum. 六\nsixteen\tnum. 十六\n' +
+    'sixteenth\tnum. 第十六\nsixth\tnum. 第六\nsixty\tnum. 六十\nsize\tn. 尺寸，大小\nskate\tvi. 溜冰，滑冰\n' +
+    'skateboard\tn. 冰鞋，滑板\nski\tn.& vi. 滑雪板；滑雪\nskill\tn. 技能，技巧\nskilled\tadj. 熟练的；有技能的\n' +
+    'skillful\tadj. 熟练,精湛的,灵巧的\nskillfully\tadv. 精湛地,巧妙地\nskin\tn. 皮，皮肤；兽皮\nskip\tv. 蹦蹦跳跳；跳绳\n' +
+    'skipping\trope （跳绳用）绳\nskirt\tn. 女裙\nsky\tn. 天；天空\nskyscraper\tn. 摩天楼\nslave\tn. 奴隶\n' +
+    'slavery\tn. 奴隶制度\nsleep\tn. 睡觉\nsleepy\tadj. 想睡的,困倦的,瞌睡的\nsleeve\tn. 袖子，袖套\nslice\tn. 片，切面（薄）片\n' +
+    'slide\tn.幻灯片,滑道 v.滑行,滑动\nslight\tadj. 轻微的，细小的\nslim\tadj. 苗条的，纤细的\nslip\tn. 片，条，纸片，纸条\n' +
+    'slow\tadv. 慢慢地，缓慢地\nsmall\tadj. 小的，少的\nsmart\tadj. 灵巧的，伶俐的；（人、服装等）时髦的，帅的\n' +
+    'smell\tv. 嗅，闻到；发气味 n. 气味\nsmelly\tadj. 有臭味的,发出臭味的\nsmile\tn.& v. 微笑\n' +
+    'smog\tn. 烟雾(= smoke + fog)\nsmoke\tn. 烟 v. 冒烟；吸烟\nsmoker\tn. 吸烟者\nsmoking\tn. 吸烟,抽烟;冒烟\n' +
+    'smooth\tadj. 光滑的;平坦的\nsnack\tn. 小吃\nsnake\tn.蛇v.蛇般爬行;蜿蜒行进\nsnatch\tv. 夺，夺得，夺走\n' +
+    'sneaker\tn. （复）轻便运动鞋（美）\nsneeze\tv. 打喷嚏\nsniff\tv. 抽鼻子（哭,患感冒时）\nsnow\tn. 雪 vi.下雪\n' +
+    'snowball\tn. 雪球\nsnowman\tn. 雪人\nsnowy\tadj. 雪(白)的；下雪的；多(积)雪的\n' +
+    'so\tadv. 如此，这么；非常；同样 conj. 因此，所以\nsoap\tn. 肥皂\nsob\tn.& v. 抽泣，啜泣\nsoccer\tn.英式足球\n' +
+    'social\tadj. 社会的；社交的\nsocialism\tn. 社会主义\nsocialist\tadj. 社会主义的\nsociety\tn. 社会\nsock\tn. 短袜\n' +
+    'socket\tn. （电源）插座\nsofa\tn. （长）沙发\nsoftball\tn. 垒球\nsoftware\tn. 软件\nsoil\tn. 土壤，土地\n' +
+    'solar\tadj. 太阳的\nsoldier\tn. 士兵，战士\nsolid\tadj. 结实的,固体的 n.固体\n' +
+    'some\tadj. 一些，若干；有些；某一 pron. 若干，一些\nsomebody\tpron. 某人；有人；有名气的人\nsomeone\tpron. 某一个人\n' +
+    'something\tpron. 某事；某物\nsometimes\tadv. 有时\nsomewhere\tadv. 在某处\nson\tn. 儿子\nsong\tn. 歌唱；歌曲\n' +
+    'soon\tadv. 不久,很快,一会儿\nsorrow\tn. 悲伤，悲痛\nsorry\tadj. 对不起,抱歉;难过的\nsort\tv]\nsoul\tn. 灵魂；心灵；气魄\n' +
+    'sound\tvi.听起来,发出声音n.声音\nsoup\tn. 汤\nsour\tadj. 酸的，馊的\nsouth\tadj. 南(方)的；向南的；从南来的 ad. 在南方；向…\n' +
+    'southeast\tn. 东南\nsouthern\tadj. 南部的，南方的\nsouthwest\tn. 西南\nsouvenirs\tn.旅游纪念品,纪念物\nsow\tvt.播种\n' +
+    'space\tn. 空间\nspaceship\tn. 宇宙飞船\nspade\tn. 铲子;纸牌中的黑桃\nspaghetti\tn. 意大利式面条\nspain\tn. 西班牙\n' +
+    'spanish\tadj. 西班牙人的，西班牙的，西班牙语的 n. 西班牙语\nspare\tadj. 空闲,多余的，剩余的\nsparrow\tn. 麻雀，雀型鸟类\n' +
+    'speak\tv. 说，讲；谈话；发言\nspeaker\tn. 演讲人，演说家\nspear\tn. 矛，枪，梭镖\nspecial\tadj. 特别的，专门的\n' +
+    'specialist\tn. （医学）专家，专科医生；专家；专业人员\nspecific\tadj. 明确的,具体的,独特的\nspeech\tn. 演讲\n' +
+    'speed\tn. 速度 v. （使）加速\nspell\tvt. 拼写\nspelling\tn. 拼写，拼读\nspend\tv. 度过；花费（钱、时间等）\n' +
+    'spin\tv.& n. 纺，（使）快速旋转；旋转，旋转运动\nspirit\tn. 精神\nspiritual\tadj. 精神的； 心灵的\nspit\tv. 吐唾沫；吐痰\n' +
+    'splendid\tadj. 灿烂的，辉煌的；（口语）极好的\nsplit\tv. 撕开;切开\nspoken\tadj. 口语的\nsponsor\tn. 赞助者，赞助商\n' +
+    'spoon\tn. 匙, 调羹\nspoonful\tn. 一匙（的量）\nsport\tvn. 体育运动，锻炼；(复，英)运动会\n' +
+    'spot\tn. 斑点，污点；场所，地点 v. 沾上污渍，弄脏\nspray\tn. / v. 水雾,喷雾(器)喷洒\nspread\tv. 延伸； 展开\n' +
+    'spring\tn. 春天,春季 n. 泉水,泉\nspy\tn. 密探,间谍 v.侦探,刺探\nsquare\tn. 广场 a. 平方的；方形的，宽而结实的（体格，肩膀）\n' +
+    'squeeze\tn. 挤压，捏，塞\nsquid\tn. 鱿鱼\nsquirrel\tn. 松鼠\nstable\tadj. 稳固的，牢固的\nstadium\tn. （露天）体育场\n' +
+    'staff\tn. 全体职工（雇员）\nstage\tn. 舞台；阶段\nstain\tn. 污点，污渍，染色剂\nstainless\tadj. 无污点的\nstair\tn. 楼梯\n' +
+    'stamp\tn. 邮票\nstand\tn. 站；立；停止；立场；地位；台；坛；摊\nstandard\tn. & a. 标准（的）\nstar\tn. 星，恒星\n' +
+    'stare\tvi. 盯，凝视\nstart\tv. 开始，着手；出发\nstarvation\tn. 饥饿； 饿死\nstarve\tv. 饿死\n' +
+    'state\tn. 状态； 情形；国家，（美国的）州\nstatement\tn.声明，陈诉，说法\nstation\tn. 站，所，车站；电台\n' +
+    'statistics\tn. 统计数字，统计资料，统计学\nstatue\tn. 法令，法规，章程\nstatus\tn. 法律地位（身份）\nstay\tn.& vi. 停留，逗留，呆\n' +
+    'steady\tadj. 稳固的；平稳的\nsteak\tn. 牛排，肉排，鱼排\nsteal\tvt. 偷, 窃取\nsteam\tn. 汽，水蒸气\nsteel\tn. 钢，钢铁\n' +
+    'steep\tadj. 险峻的； 陡峭的\nstep\tn.脚步,台阶,梯级 vi.走,跨步\nsteward\tn. (火车、飞机、轮船等)男服务员；男乘务员\n' +
+    'stewardess\tn.女乘务员,空中小姐\nstick\tvi. 粘住，钉住；坚持n. 木棒（棍）,枝条\nstill\tadj. 不动的,平静的ad.仍然,还\n' +
+    'stocking\tn. 长统袜\nstomach\tn. 胃，胃部\nstomachache\tn. 胃疼\nstone\tn. 石头，石料\n' +
+    'stop\tn. 停；（停车）站 v. 停，停止，阻止\nstopwatch\tn. 记秒表；跑表\nstorage\tn. 贮藏； 储存\nstore\tn. 商店 vt. 储藏，存储\n' +
+    'storm\tn. 风暴，暴（风）雨\nstory\tn. 故事，小说\nstout\tadj. 肥壮的，厚实牢固的\nstove\tn. （供烹饪用的 ）火炉，煤炉，电炉\n' +
+    'straight\tadj. 一直的，直的 ad. 一直地，直地\nstraightforward\tadj. / ad. 简单的，坦率的\nstrait\tn. 海峡\n' +
+    'strange\tadj. 奇怪,奇特的,陌生的\nstranger\tn. 陌生人，外人\nstraw\tn. 稻草\nstrawberry\tn. 草莓\n' +
+    'stream\tn. 小河；溪流\nstreet\tn. 街，街道\nstrength\tn. 力量，力气\nstrengthen\tvt. 加强，增强\n' +
+    'stress\tn. 精神压力，心理负担 v. 强调，重读\nstrict\tadj. 严格的，严密的\nstrike\tv.（钟）鸣;敲（响）,罢工\nstring\tn. 细绳，线，带\n' +
+    'strong\tadj. 强(壮)的；坚固的；强烈的；坚强的\nstruggle\tvi. 斗争\nstubborn\tadj. 固执的，倔强的\nstudent\tn. 学生\n' +
+    'studio\tn. 工作室，演播室\nstudy\tv. 学习；研究 n. 书房\nstupid\tadj. 愚蠢的，笨的\nstyle\tn. 方式，作风，款式\n' +
+    'subject\tadj. 隶属的；受支配的；易受…的；在…条件下 vt. …\nsubjective\tadj. 主观的\nsubmit\tv. 提交，呈递（文件，建议等）\n' +
+    'subscribe\tv.订阅,订购（报刊等）\nsubstitute\tv. 代替，取代\nsubtraction\tn.（算数中的）减\nsucceed\tvi. 成功\n' +
+    'success\tn. 成功\nsuccessful\tadj. 成功的,有成就的\nsuch\tadv. 那么 pron. （泛指）人，事物 a.这样的，…\nsuck\tvt. 吸吮\n' +
+    'sudden\tadj. 突然的\nsuffer\tvi. 受苦，遭受\nsuffering\tn. 痛苦，苦难\nsugar\tn. 糖\nsuggest\tvt. 建议，提议\n' +
+    'suggestion\tn. 建议\nsuit\tvt. 适合 n.一套（衣服）\nsuitable\tadj. 合适的，适宜的\nsuitcase\tn.(旅行用)小提箱,衣箱\n' +
+    'suite\tn. 套间；组曲\nsummary\tn. 摘要，概要\nsummer\tn. 夏天，夏季\nsun\tn. 太阳，阳光\nsunburnt\tadj. 晒黑的\n' +
+    'sunday\tn. 星期日\nsunglasses\tn. 太阳眼镜，墨镜\nsunlight\tn. 日光，阳光\nsunny\tadj. 晴朗的;阳光充足的\n' +
+    'sunrise\tn. 黎明，拂晓\nsunset\tn. 日落(时分)\nsunshine\tn. 阳光\nsuper\tadj. 顶好的，超级的\n' +
+    'superb\tadj. 卓越的,质量极高的\nsuperior\tadj. 更胜一筹的 n. 上级，上司\nsuperman\tn. 超人\nsupermarket\tn. 超级市场\n' +
+    'supper\tn. 晚餐，晚饭\nsupply\tvt.& n. 供给，供应\nsupport\tvt.& n. 支持，赞助\nsuppose\tvt. 猜想,假定,料想\n' +
+    'supreme\tadj. 至高无上的,最高的\nsure\tadj. 确信，肯定 ad. (口语)的确，一定，当然\nsurface\tn. 表面\nsurgeon\tn. 外科医生\n' +
+    'surplus\tn. 过剩，剩余\nsurprise\tvt. 使惊奇,使诧异 n. 惊奇,诧异\nsurround\tvt. 围绕；包围\nsurrounding\tadj. 周围的\n' +
+    'survival\tn. 存活，幸存\nsurvive\tv.生存，存活，幸免于难\nsuspect\tn. 犯罪嫌疑人\nsuspension\tn.暂令停职,推迟,延期\n' +
+    'swallow\tvt. 吞下；咽下\nswap\tv. 交换（东西）\nswear\tv.咒骂.,诅咒\nsweat\tn. 汗，汗水\nsweater\tn. 厚运动衫，毛衣 \n' +
+    'sweep\tv. 扫除，扫\nsweet\tn.甜食;蜜饯;甜点;糖果;芳香a.甜的;新鲜的;可爱的;…\nswell\tv. 肿胀\nswift\tadj. 快的，迅速的\n' +
+    'swim\tn. 游泳，游\nswimming\tn. 游泳\nswing\tvt. 挥舞，摆动 n. 秋千\nswiss\tadj. 瑞士人的 n. 瑞士人\n' +
+    'switch\tv./ n. 开关,转换,改变\nswitzerland\tn. 瑞士\nsword\tn. 剑，刀\nsymbol\tn. 象征\nsympathy\tn. 同情\n' +
+    'symphony\tn. 交响乐\nsymptom\tn. 症状\nsystem\tn. 体系；系统\nsystematic\tadj. 系统的,有条理的\ntable\tn. 桌子，表格\n' +
+    'tablet\tn. 药片\ntail\tn. (动物的)尾巴\ntailor\tn. 裁缝\ntake\tvt. 拿；拿走；做；服用；乘坐；花费\ntale\tn. 故事, 传说\n' +
+    'talent\tn. 天才，天赋\ntalk\tn.& v.谈话,讲话,演讲,交谈\ntall\tadj. 高的\ntank\tn. 储水容量；坦克\ntanker\tn. 油船\n' +
+    'tap\tn. (自来水煤气等的)龙头\ntape\tn. 磁带；录音带\ntarget\tn./ v. 目标，把…作为攻击目标\ntask\tn. 任务, 工作\n' +
+    'taste\tn. 品尝, 尝味；味道 vt. 品尝, 尝味\ntasteless\tadj. 无滋味的\ntasty\tadj. 味道好的\ntax\tn. 税，税款\n' +
+    'taxi\tn. 出租汽车\ntaxpayer\tn. 纳税人\ntea\tn. 茶；茶叶 \nteach\tv. 教书,教\nteacher\tn. 教师，教员\n' +
+    'team\tn. 队，组\nteamwork\tn. 合作，协同工作\nteapot\tn. 茶壶\ntear\tn. 眼泪 v. 扯破, 撕开\ntease\tv. 取笑，戏弄，寻开心\n' +
+    'technical\tadj. 技术的，工艺的\ntechnique\tn. 技术;技巧,方法\ntechnology\tn. 技术\n' +
+    'teenager\tn.（13～19岁的）青少年，十几岁的少年\ntelegram\tn. 电报\ntelegraph\tv. (拍) 电报\n' +
+    'telephone\tv. 打电话 n. 电话\ntelescope\tn. 望远镜\ntelevision\tn. 电视\ntell\tvt.告诉,讲述,吩咐\n' +
+    'temperature\tn. 温度\ntemple\tn. 庙宇，寺院\ntemporary\tadj. 短暂的，暂时的\ntemptation\tn. 引诱；诱惑\n' +
+    'ten\tnum. 十\ntend\tv. 往往会，常常就，倾向，趋于\ntendency\tn. 倾向，偏好，性情\ntennis\tn. 网球\n' +
+    'tense\tadj. 心烦意乱的，紧张的\ntension\tn. 紧张局势，矛盾\ntent\tn. 帐篷\ntentative\tadj. 不确定的，踌躇的\n' +
+    'term\tn. 学期;术语;条款;项\nterminal\tadj. (火车汽车飞机)终点站\nterrible\tadj. 可怕的；糟糕的\nterrify\tvt. 使人感到恐怖\n' +
+    'terror\tn. 恐惧，惊恐\ntest\tvt.& n. 测试, 考查，试验\ntext\tn. 文本，课文\ntextbook\tn. 课本，教科书\nthan\tconj. 比\n' +
+    'thank\tvt. 感谢，致谢，道谢 n. （复）感谢，谢意\nthankful\tadj. 感谢的，感激的\nthat\tadj. & pron.那，那个 conj. 那，那个（引…\n' +
+    'the\tart. 这（那）个,这（那）些（用于特定人或物，序数词，…\ntheatre\tn. 剧场，戏院\ntheft\tn. 盗窃案\ntheir\tpron. 他(她,它)们的\n' +
+    'theirs\tpron. 他（她,它）们的\nthem\tpron. 他/她/它们（宾格）\ntheme\tn. 主题\nthemselves\tpron.他/她/它们自己\n' +
+    'then\tadv. 当时,那时,然后,那么\ntheoretical\tadj. 理论的\ntheory\tn. 理论\n' +
+    'there\tint. 那！你瞧（表示引起注意） n. 那里，那儿 ad…\ntherefore\tadv. 因此，所以\nthermos\tn. 热水瓶\n' +
+    'these\tadj. & pron. 这些\nthey\tpron. 他（她）们；它们\nthick\tadj. 厚的\nthief\tn. 窃贼, 小偷\n' +
+    'thin\tadj. 薄的；瘦的；稀的\nthing\tn. 东西；(复)物品，用品；事情，事件\nthink\tv. 想；认为；考虑\nthinking\tn. 思索;见解;想法\n' +
+    'third\tnum. 第三\nthirst\tn. 渴； 口渴\nthirsty\tadj. 渴\nthirteen\tnum. 十三\nthirty\tnum. 三十\n' +
+    'this\tadj. & pron.这，这个\nthorough\tadj. 彻底的\nthose\tadj. & pron.那些\nthough\tconj. 虽然，可是\n' +
+    'thought\tn. 思考,思想;念头\nthousand\tnum. 千\nthread\tn. 线\nthree\tnum. 三\nthrill\tn./ v. 兴奋，激动\n' +
+    'thriller\tn. 惊险小说\nthroat\tn. 喉咙\nthrough\tprep.穿（通）过;从始至终 ad.穿(通)过;自始至终…\n' +
+    'throughout\tprep. 遍及，贯穿\nthrow\tv.投,掷,扔\nthunder\tn.& v. 雷声，打雷\nthunderstorm\tn.雷电交加暴风雨\n' +
+    'thursday\tn. 星期四\nthus\tadv. 这样；因而\ntibet\tn. 西藏\ntibetan\tn. 西藏人；西藏语\ntick\tvt. 作记号\n' +
+    'ticket\tn. 票；卷\ntidy\tadj. 整洁的，干净的 vt. 弄整洁，弄干净\ntie\tvt. （用绳，线）系，拴，扎 n. 领带，绳子，结；关系\n' +
+    'tiger\tn. 老虎\ntight\tadj. 紧的\ntill\tconj.& prep.直到,直到…为止\ntime\tn. 时间;时期;钟点,次,回 vt.测定…的时间,记录……\n' +
+    'timetable\tn. （火车、公共汽车等）时间表；（学校）课表\ntin\tn. （英）罐头，听头\ntiny\tadj. tinier, tiniest a. 极小的，微…\n' +
+    'tip\tn.& v.顶端，尖端；告诫； 提示 (给)小费\ntire\tvi. 使疲劳\ntired\tadj. 疲劳的，累的\ntiresome\tadj. 令人厌倦的\n' +
+    'tissue\tn. （人，动植物的）组织，纸巾\ntitle\tn. 标题，题目\nto\tprep. （动词不定式符号，无词义）；（表示接受动作的人…\ntoast\tv./ n. 烤\n' +
+    'tobacco\tn. 烟草，烟叶\ntoday\tadv. & n.今天;现在,当前\ntogether\tadv. 一起，共同\ntoilet\tn. 厕所\ntokyo\tn. 东京\n' +
+    'tolerate\tv. 容许，允许，忍受\ntomato\tn. 西红柿，番茄\ntomb\tn. 坟墓\ntomorrow\tadv. & n.明天\nton\tn. （重量单位）吨\n' +
+    'tongue\tn. 舌，舌头\ntonight\tadv. & n. 今晚，今夜\ntoo\tadv. 也,还,又,太,过分,很,非常\ntool\tn. 工具，器具\n' +
+    'tooth\tn. 牙齿\ntoothache\tn. 牙痛\ntoothbrush\tn. 牙刷\ntoothpaste\tn. 牙膏\ntop\tn. 顶部,（物体的）上面\n' +
+    'topic\tn. 题目，话题\ntortoise\tn. 乌龟\ntotal\tadj. 总数的;总括的;完全的,全然的 n.合计,总计 …\ntotally\tadv. 总合地，完全地\n' +
+    'touch\tvt. 触摸，接触\ntough\tadj. 坚硬的；结实的；棘手的，难解的\ntour\tn. 参观, 观光, 旅行\ntourism\tn. 旅游业；观光\n' +
+    'tourist\tvn. 旅行者，观光者\ntournament\tn. 锦标赛，联赛\ntoward\tprep. 向，朝，对于\ntowel\tn. 毛巾\ntower\tn. 塔\n' +
+    'town\tn. 城镇，城\ntoy\tn. 玩具, 玩物\ntrack\tn. 轨道；田径\ntractor\tn. 拖拉机\ntrade\tn.贸易 vt.用…进行交换\n' +
+    'tradition\tn. 传统，风俗\ntraditional\tadj. 传统的，风俗的\ntraffic\tn. 交通，来往车辆\ntrain\tn. 火车 v. 培训,训练\n' +
+    'trainer\tn. 训练人；教练\ntraining\tn. 培训\ntram\tn. 有轨电车\ntransform\tv.使改变形态,使改观\ntranslate\tvt. 翻译\n' +
+    'translation\tn. 翻译；译文\ntranslator\tn. 翻译家，译者\ntransparent\tadj. 透明的，清澈的\ntransport\tn.& vt.运输\n' +
+    'trap\tn. 陷阱 vt. 使陷入困境\ntravel\tn.& vi.旅行\ntraveler\tn. 旅行者\ntreasure\tn. 金银财宝, 财富\n' +
+    'treat\tvt. 对待，看待\ntreatment\tn. 治疗,疗法\ntree\tn. 树\ntremble\tv. 颤抖\ntrend\tn. 趋势，倾向，动态\n' +
+    'trial\tn. 审判；试验；试用\ntriangle\tn.& adj.三角形;三角形的\ntrick\tn. 诡计，把戏\ntrip\tn. 旅行，旅程\ntroop\tn. 部队\n' +
+    'trooping\tvi. 成群结队地走\ntrouble\tvt. 使苦恼,使忧虑,使麻烦 n.问题,疾病,烦恼,麻烦\ntroublesome\tadj. 令人烦恼, 讨厌\n' +
+    'trousers\tn. 裤子，长裤\ntruck\tn. 卡车, 运货车；车皮 v. 装车；用货车运\ntrue\tadj. 真的，真实的；忠诚的\n' +
+    'truly\tadv. 真正地，真实地\ntrunk\tn. 树干；大箱子\ntrust\tvt. 相信，信任，信赖\ntruth\tn. 真理,事实,真相,实际\n' +
+    'try\tv. 试，试图，努力\ntube\tn. 管，管状物\ntuesday\tn. 星期二\ntune\tn. 曲调，曲子\nturkey\tn. 火鸡\n' +
+    'turn\tv. 旋转，翻转，转变，转弯 n. 轮流，（轮流的）顺序\ntutor\tn. 家庭教师，私人教师，导师\ntwelfth\tnum. 第十二\ntwelve\tnum. 十二\n' +
+    'twentieth\tvnum.第二十\ntwenty\tnum. 二十\ntwice\tadv. 两次；两倍\ntwin\tn. 双胞胎之一\ntwist\tv./ n. 使弯曲，转动\n' +
+    'two\tnum. 二\ntype\tvt. 打字\ntypewriter\tn. 打字机\ntyphoon\tn. 台风\ntypical\tadj. 典型的，有代表性的，特有的\n' +
+    'typist\tn. 打字员\ntyre\tn. 轮胎\nugly\tadj. 丑陋的；难看的\numbrella\tn. 雨伞\nunable\tadj. 不能的，不能胜任的\n' +
+    'unbearable\tadj. 难耐得,无法接受的\nunbelievable\tadj. 难以置信的\nuncertain\tadj. 不确定的\n' +
+    'uncle\tn. 叔,伯,舅,姑夫,姨父\nuncomfortable\tadj. 令人不舒服的\nunconditional\tadj. 无条件，绝对的\n' +
+    'unconscious\tadj. 昏迷,不省人事的\nunder\tadv. & prep.在…下面，向…下面\nunderground\tadj. 地下的 n. 地铁\n' +
+    'underline\tv. 在…下划线\nunderstand\tv. 懂得;明白;理解\nunderstanding\tn. 领会;理解\nundertake\tv. 承担，从事，负责\n' +
+    'underwear\tn. 内衣\nundivided\tadj. 没分开的；专一的； 专心的\nundo\tv. 解开，松开\nunemployment\tn.失业,失业状态\n' +
+    'unfair\tadj. 不公平的，不公正的\nunfit\tadj. 不合宜的，不相宜的\nunfold\tvt. 展开，打开\nunfortunate\tadj. 不幸的\n' +
+    'unfortunately\tadv. 不幸地\nunhappy\tadj. 不高兴的,伤心的\nunhealthy\tadj. 不健康的,不卫生的\nuniform\tn. 制服\n' +
+    'unimportant\tadj. 不重要的,无意义\nunion\tn. 联合,联盟；工会\nunique\tadj. 惟一的,独一无二的\nunit\tn. 单元，单位\n' +
+    'unite\tv. 联合，团结\nuniversal\tadj. 普遍的，全体的\nuniverse\tn. 宇宙\nuniversity\tn. 大学\n' +
+    'unknown\tadj. 不知道的\nunless\tconj. 如果不，除非\nunlike\tprep. 不像，和…不同\nunmarried\tadj. 未婚的，独身的\n' +
+    'unpleasant\tadj. 使人不愉快的\nunrest\tn. 不安；骚动\nunsafe\tadj. 不安全的；危险的\nunsuccessful\tadj. 不成功,失败的\n' +
+    'until\tprep.& conj.直到…为止\nuntrue\tadj. 不真实的，假的\nunusual\tadj. 不平常的，异常的\n' +
+    'unwilling\tadj. 不愿意的，勉强的\nup\tadv. 向上；在上方；起来；在…以上 a. 上面的，向上…\nupon\tprep. 在……上面\n' +
+    'upper\tadj. 较高的，较上的\nupset\tadj. 心烦的，苦恼的\nupstairs\tadv. 在楼上，到楼上\nupward\tadv. 向上；往上\n' +
+    'urban\tadj. 城市的，都市的\nurge\tv. 敦促，催促，力劝\nurgent\tadj. 紧急的，紧迫的\nuse\tn.& vt.利用,使用,应用\n' +
+    'used\tadj. 用过的;旧的;二手的\nuseful\tadj. 有用的，有益的\nuseless\tadj. 无用的\nuser\tn. 使用者；用户\n' +
+    'usual\tadj. 通常的，平常的\nusually\tadv. 通常，经常\nvacant\tadj. 空缺的，未被占用的\nvacation\tn. 假期，休假\n' +
+    'vague\tadj. 含糊的，紧迫的\nvain\tn. 自负的，自视过高的，徒劳的，无效的\nvalid\tadj. 有效的,合理的,有根据的\nvalley\tn. 山谷, 溪谷\n' +
+    'valuable\tadj. 值钱的，贵重的\nvalue\tn. 价值，益处\nvanilla\tn. 香草\nvariety\tn. 种种，种类\n' +
+    'various\tadj. 各种各样的，不同的\nvase\tn. （花）瓶；瓶饰\nvast\tadj. 巨大的，广阔的\nveal\tn. （食用）小牛肉\n' +
+    'vegetable\tn. 蔬菜\nvehicle\tn. 交通工具，车辆\nversion\tn. 变体，变种，改写本\nvertical\tadj. 垂直的，纵向的\n' +
+    'very\tvad. 很，非常\nvest\tn. 背心，内衣\nvia\tprep. 经过（某地），通过\nvice\tn. 罪行，不道德行为\nvictim\tn. 受害者，牺牲品\n' +
+    'victory\tn. 胜利\nvideo\tn. 录像，视频\nvideophone\tn. 可视电话\nview\tn. 看法,见解;风景,景色\nviewer\tn. 观看者\n' +
+    'village\tn. 村庄，乡村\nvillager\tn. 村民\nvinegar\tn. 醋\nviolate\tv. 违反（法律、协议等），侵犯\n' +
+    'violence\tn. 暴力行为\nviolent\tadj. 暴力的\nviolin\tn. 小提琴\nviolinist\tn. 提琴家，提琴手\n' +
+    'virtue\tn. 美德,正直的品行,德行\nvirus\tn.病毒\nvisa\tn. 签证，背签\nvisit\tn.& vt. 参观，访问，拜访\n' +
+    'visitor\tn. 访问者，参观者\nvisual\tadj. 视力的，视觉的\nvital\tadj. 必不可少的，对…极重要的\nvivid\tadj. 生动，逼真的，鲜明的\n' +
+    'vocabulary\tn. 词汇, 词汇表\nvoice\tn. 说话声; 语态\nvolcano\tn. 火山\nvolleyball\tn. 排球\n' +
+    'voluntary\tadj. 自愿的，主动的\nvolunteer\tn./ v. 义工，自愿者，无偿做\nvote\tvi. 选举，投票\nvoyage\tn. 航行，旅行\n' +
+    'wag\tv. 摇动；摆动\nwage\tn. 工资，工钱，报酬\nwaist\tn. 腰，腰部，腰围\nwait\tvi. 等，等候\nwaiter\tn. （餐厅）男服务员\n' +
+    'waitress\tn. 女服务员\nwake\tv.醒来,叫醒\nwalk\tn.& v. 步行；散步\nwalkman\tn. 随身听\nwall\tn. 墙\n' +
+    'wallet\tn. (放钱,证件等的)皮夹\nwalnut\tn. 核桃，胡桃\nwander\tvi.漫游,游荡,漫步,流浪\nwant\tvt. 想,想要,需要,必要\n' +
+    'war\tn. 战争\nward\tn. 保卫,看护,病房,收容所\nwarehouse\tn. 仓库，货栈\nwarm\tadj. 暖和的,温暖的;热情的\n' +
+    'warmth\tn. 暖和，温暖\nwarning\tn. 警报\nwash\tn.洗(涤)冲洗,洗剂,泼溅,洗的衣服 v.洗(涤),冲洗…\nwashroom\tn. 盥洗室\n' +
+    'waste\tn.& vt. 浪费\nwatch\tvt. 观看，注视；当心，注意 n. 手表，表\nwater\tn. 水v. 浇水\nwatermelon\tn. 西瓜\n' +
+    'wave\tn. （热、光、声等的）波，波浪 v. 挥手，挥动，波动\nwax\tn. 蜡\nway\tn. 路，路线；方式，手段\nwayside\tadj. 路边的\n' +
+    'we\tpron. 我们\nweak\tadj. 差的，弱的，淡的\nweakness\tn. 软弱\nwealth\tn. 财产，财富\nwealthy\tadj. 富的\n' +
+    'wear\tv. 穿，戴\nweather\tn. 天气\nweatherman\tn.气象员,预报天气的人\nweb\tn. 网，网状物\nwebsite\tn. 网络\n' +
+    'wedding\tn. 婚礼,结婚\nwednesday\tn. 星期三\nweed\tn. 杂草，野草\nweek\tn. 星期，周\nweekday\tn. 平日\n' +
+    'weekend\tn. 周末\nweekly\tadj. 每周的\nweep\tv. 哭泣，流泪\nweigh\tvt. 称…的重量，重（若干）\nweight\tn. 重，重量\n' +
+    'welcome\tint.n. & v.欢迎 a. 受欢迎的\nwelfare\tn. 幸福，福利\nwell\t(better, best) ad. 好,令人满意地,完全…\n' +
+    'west\tadj. (在)西；向西,从西来的 ad. 在西方,向西方…\nwestern\tadj. 西方的，西部的\nwesterner\tn. 西方人\n' +
+    'westwards\tadv. 向西\nwet\tadj. 湿的,潮的,多雨的\nwhale\tn. 鲸\nwhat\tpron. 什么,怎么样 a. 多么，何等；什么\n' +
+    'whatever\tconj. & pron.无论什么，不管什么\nwheat\tn. 小麦\nwheel\tn. 轮，机轮\nwhen\tconj. 当…的时候 ad. 什么时候，何时\n' +
+    'whenever\tconj. 每当，无论何时\nwhere\tadv. 在哪里；往哪里\nwherever\tconj. 无论在哪里\nwhether\tconj. 是否\n' +
+    'which\tpron. 那(哪)一个；那(哪)一些 a.这(哪)个；这…\nwhichever\tpron. 无论哪个;无论哪些\n' +
+    'while\tconj.在…的时候,和…同时 n. 一会儿，一段时间\nwhisper\tv. 低语，私下说\nwhistle\tn. 口哨，口哨声\n' +
+    'white\tadj. 白色的 n. 白色\nwho\tpron. 谁\nwhole\tadj. 整个的\nwhom\tpron. (who的宾格 )\nwhose\tpron. 谁的\n' +
+    'why\tadv. / int. 为什么, 你难道不知道（表示反驳、…\nwide\tadj. 宽阔的\nwidespread\tadj. 分布广的,普遍的\nwife\tn. 妻子\n' +
+    'wild\tadj. 未开发的，荒凉的；野生的，野的\nwildlife\tn. 野生动物\nwill\tn. 意志, 遗嘱\nwilling\tadj. 乐意的； 愿意的\n' +
+    'willingly\tadv. 乐意地\nwillingness\tn. 意愿； 愿望\nwin\tn. 获胜，赢得\nwind\tn. 风 \n' +
+    'windbreaker\tn.风衣,防风(皮)夹克\nwindow\tn. 窗户；计算机的窗\nwindy\tadj. 有风的，多风的\nwine\tn. 酒\n' +
+    'wing\tn. 机翼，翅膀\nwinner\tn. 获胜者\nwinter\tn. 冬天，冬季\nwipe\tv. 擦；擦净；擦干\nwire\tn. 电线\nwisdom\tn. 智慧\n' +
+    'wise\tadj. 聪明,英明的,有见识的\nwish\tn. 愿望，祝愿 vt. 希望，想要，祝愿\nwith\tprep.关于,带有,以,和,用,有\n' +
+    'withdraw\tv. 撤回，撤离\nwithin\tprep. 在……里面\nwithout\tprep. 没有\nwitness\tv./ n. 目击者，见证人\n' +
+    'wolf\tn. 狼\nwoman\tn.妇女女人\nwonder\tv. 对…疑惑，感到惊奇,想知道 n. 惊讶,惊叹;奇迹\n' +
+    'wonderful\tadj. 美妙的，精彩的；了不起的；太好了\nwoo\tl n. 羊毛，羊绒\nwood\tn.木头,木材,(复)树木,森林\nwooden\tadj. 木制的\n' +
+    'woollen\tadj. 羊毛的，羊毛制的\nword\tn. 词，单词；话\nwork\tn. 工作,劳动,事情 vi. 工作;(机器、器官等)运转…\nworkday\tn. 工作日\n' +
+    'worker\tn. 工人；工作者\nworkforce\tn. 劳动力\nworkmate\tn. 同事；工友\nworkplace\tn.工作场所，车间\n' +
+    'works\tn. 著作，作品\nworld\tn. 世界\nworldwide\tadj. 遍及全球的，世界范围的\nworm\tn. 软体虫,蠕虫(尤指蚯蚓)\n' +
+    'worn\tadj. 用坏,用旧的,疲惫的\nworried\tadj. 担心的，烦恼的\nworry\tn.& v.烦恼,担忧,发怒,困扰\n' +
+    'worse\tadj. (bad的比较级)更坏的\nworst\tadj. (bad的最高级)最坏的\nworth\tadj. 有…的价值,值得…的\n' +
+    'worthless\tadj. 没有价值,没有用的\nworthwhile\tadj. 值得做的\nworthy\tadj. 值得的\n' +
+    'would\tmodal v.（will的过去时）将会，打算，想要，过去…\nwound\tvt.伤,伤害 n.创伤,伤口\nwounded\tadj. 受伤的\n' +
+    'wrestle\tv. 摔跤\nwrinkle\tn. 皱纹\nwrist\tn. 手腕，腕关节\nwrite\t(wrote, written) v. 写，书写；写作，著述\n' +
+    'writing\tn. 书写，写\nwrong\tadj. 错误,不正常,有毛病的\nyard\tn. 码；院子；场地\nyawn\tv. 打哈欠\nyear\tn. 年\n' +
+    'yell\tv. 叫喊，吼叫\nyellow\tadj. 黄色的\nyes\tadv. 是，好，同意\nyesterday\tn.& ad. 昨天\nyet\tadv. 尚，还，仍然\n' +
+    'yoghurt\tn. 酸奶\nyou\tpron. 你；你们\nyoung\tadj. 年轻的\nyour\tpron. 你的；你们的\nyours\tpron. 你的；你们的\n' +
+    'yourself\tpron. 你自己\nyourselves\tpron. 你们自己\nyouth\tn. 青春；青年\nyummy\tadj. 很好吃的\nzebra\tn. 斑马\n' +
+    'zero\tn. & num.零,零度,零点\nzip\tv.& n.拉开(或扣上)……的拉链；拉链\nzipper\tn. 拉链\nzone\tn. 区域；范围\nzoo\tn. 动物园\n' +
+    'zoom\tv. 快速移动，迅速前往，猛涨\n';
+  // 词条表每行是「单词 \t 中文释义」，解析成词数组 + 释义表
+  var VOCAB = [];
+  var GLOSS = Object.create(null);
+  (function parseDict() {
+    var rows = DICT_SRC.split('\n');
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (!r) continue;
+      var t = r.indexOf('\t');
+      var w = t < 0 ? r : r.slice(0, t);
+      if (!w) continue;
+      VOCAB.push(w);
+      if (t >= 0) GLOSS[w] = r.slice(t + 1);
+    }
   })();
+
+  var WORDS = VOCAB;                       // 字母渐进模式的 bigram 语料同源
+  var ALL_LETTERS = 'abcdefghijklmnopqrstuvwxyz';
 
   var BI = Object.create(null);   // 双字模型：前一个字 -> { 后一个字: 次数 }
   var UNI = Object.create(null);  // 单字频率
@@ -302,10 +1242,18 @@
   var elLevel    = $('#s-level');
   var elBest     = $('#s-best');
   var elBar      = $('#lesson-bar');
+  var elBarWrap  = $('#bar-wrap');
+  var elGrade    = $('#lbl-grade');
+  var elVocabRow = $('#lbl-vocab');
+  var elVocabN   = $('#s-vocab');
   var elHintKeys = $('#hint-keys');
+  var elGloss    = $('#gloss');
+  var elGlossCn  = $('#gloss-cn');
+  var elGlossWord = $('#gloss-word');
 
   /* ================= 状态 ================= */
   var state = {
+    mode: 'vocab',   // 'vocab' 高考3500 / 'letters' 字母渐进
     level: START_LEVEL,
     alphabet: '',
     allow: null,
@@ -325,7 +1273,7 @@
     sinceUnlock: 0,
     sinceUnlockCorrect: 0,
     best: 0,
-    settings: { sound: true, strict: false }
+    settings: { sound: true, strict: false, gloss: true, voice: true }
   };
 
   var lineSpans = new Map();  // 行号 -> [span]
@@ -444,7 +1392,21 @@
     return out;
   }
 
+  // 高考词库：整表随机，避开最近 12 个词，避免一行里来回重复
+  function genVocab() {
+    var n = VOCAB.length, i, w;
+    for (i = 0; i < 40; i++) {
+      w = VOCAB[(Math.random() * n) | 0];
+      if (isFresh(w)) { remember(w); return w; }
+    }
+    w = VOCAB[(Math.random() * n) | 0];
+    remember(w);
+    return w;
+  }
+
   function genWord() {
+    if (state.mode === 'vocab') return genVocab();
+
     var i, w;
     // 真词优先：宁可真实，也不生造
     if (realWords.length >= 4 && Math.random() < 0.6) {
@@ -528,6 +1490,7 @@
       if (s) { s.classList.add('cur'); cursorEl = s; }
     }
     highlightNext(expectedChar());
+    updateGloss();
   }
 
   function expectedChar() {
@@ -535,6 +1498,33 @@
     if (line == null) return null;
     var ch = line[state.col];
     return ch === undefined ? null : ch;
+  }
+
+  /* ================= 中文释义 ================= */
+  // 只在「一个词刚打完」时揭晓释义，边打边看中文会变成抄答案
+  var lastDone = '';
+
+  // 若第 ci 个字符正是一个词的末字母，返回这个词，否则返回空串
+  function completedWordAt(li, ci) {
+    var line = state.buffer[li];
+    if (!line || line[ci] === ' ') return '';
+    if (ci + 1 < line.length && line[ci + 1] !== ' ') return '';
+    var s = ci;
+    while (s > 0 && line[s - 1] !== ' ') s--;
+    return line.slice(s, ci + 1);
+  }
+
+  function updateGloss() {
+    // 开始提示卡还在时先不显示，否则下方会飘着一个没有对应单词的释义
+    var show = state.settings.gloss && state.mode === 'vocab' && state.running;
+    var m = show && lastDone ? GLOSS[lastDone] : '';
+    if (!m) {
+      if (!elGloss.hidden) elGloss.hidden = true;
+      return;
+    }
+    if (elGlossWord.textContent !== lastDone) elGlossWord.textContent = lastDone;
+    if (elGlossCn.textContent !== m) elGlossCn.textContent = m;
+    if (elGloss.hidden) elGloss.hidden = false;
   }
 
   /* ================= 统计 ================= */
@@ -627,6 +1617,54 @@
     } catch (e) { /* 静默失败 */ }
   }
 
+  /* ================= 语音朗读 ================= */
+  // 用系统自带的语音合成，不依赖网络和音频文件
+  var synth = ('speechSynthesis' in window) ? window.speechSynthesis : null;
+  var enVoice = null;
+
+  function pickVoice() {
+    if (!synth) return null;
+    var list = synth.getVoices() || [];
+    if (!list.length) return null;
+    var en = [];
+    for (var i = 0; i < list.length; i++) {
+      if (/^en/i.test(list[i].lang)) en.push(list[i]);
+    }
+    if (!en.length) return null;
+    // 优先挑本地、念得清楚的英语女声
+    for (var j = 0; j < en.length; j++) {
+      if (/natural|aria|zira|samantha|google us english/i.test(en[j].name)) { enVoice = en[j]; return enVoice; }
+    }
+    enVoice = en[0];
+    return enVoice;
+  }
+
+  if (synth) {
+    pickVoice();
+    synth.onvoiceschanged = function () { enVoice = null; pickVoice(); };
+  }
+
+  function speak(text) {
+    if (!text) return;
+    if (!state.settings.voice) return;
+    if (!synth) return;
+    try {
+      // 打太快时掐掉上一条，保证音画同步；没在播就别 cancel（某些浏览器会吞掉下一条）
+      if (synth.speaking || synth.pending) synth.cancel();
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = 'en-US';
+      u.rate = 0.92;
+      u.pitch = 1;
+      if (enVoice || pickVoice()) u.voice = enVoice;
+      synth.speak(u);
+    } catch (e) { /* 没有语音能力就静默跳过 */ }
+  }
+
+  function stopSpeaking() {
+    if (!synth) return;
+    try { synth.cancel(); } catch (e) {}
+  }
+
   /* ================= 提示条 ================= */
   function toast(msg) {
     elToast.textContent = msg;
@@ -635,18 +1673,36 @@
     toastTimer = setTimeout(function () { elToast.classList.remove('show'); }, 1800);
   }
 
-  /* ================= 等级 / 解锁 ================= */
+  /* ================= 词库 / 等级 ================= */
   function setLevel(n) {
     state.level = Math.max(1, Math.min(LETTER_ORDER.length, n));
-    state.alphabet = LETTER_ORDER.slice(0, state.level).join('');
+    applyMode();
+  }
+
+  // 按当前模式刷新：可用字母集、词池、键盘锁定、HUD
+  function applyMode() {
+    var vocab = state.mode === 'vocab';
+    stopSpeaking();
+
+    state.alphabet = vocab ? ALL_LETTERS : LETTER_ORDER.slice(0, state.level).join('');
     state.allow = new Set(state.alphabet.split(''));
     refreshRealWords();
     recent.length = 0;
+
     elLevel.textContent = String(state.level);
+    elVocabN.textContent = String(VOCAB.length);
+    elGrade.hidden = vocab;
+    elVocabRow.hidden = !vocab;
     elBar.style.width = Math.min(100, (state.level / LETTER_ORDER.length) * 100) + '%';
+    elBarWrap.hidden = vocab;
+    elLetters.style.display = vocab ? 'none' : '';
+
     paintKeyboardLocks();
     renderLetters();
-    elHintKeys.textContent = '当前只练 ' + state.alphabet.split('').join(' ');
+    elHintKeys.textContent = vocab
+      ? '高考3500 · ' + VOCAB.length + ' 词 · 全键盘'
+      : '当前只练 ' + state.alphabet.split('').join(' ');
+    updateGloss();
   }
 
   function renderLetters() {
@@ -661,6 +1717,7 @@
   }
 
   function maybeUnlock() {
+    if (state.mode !== 'letters') return;   // 高考词库模式不玩字母解锁
     if (state.sinceUnlock < UNLOCK_EVERY) return;
     var acc = state.sinceUnlockCorrect / UNLOCK_EVERY;
     state.sinceUnlock = 0;
@@ -702,6 +1759,9 @@
     var li = state.lineIndex;
     var spans = lineSpans.get(li);
     if (spans && spans[ci]) spans[ci].classList.add(ok ? 'o' : 'b');
+
+    var done = completedWordAt(li, ci);   // 打完一个词的最后一个字母？
+    if (done) { lastDone = done; speak(done); }
 
     state.col = ci + 1;
     if (state.col >= state.buffer[li].length) {
@@ -796,6 +1856,8 @@
     state.intervals = [];
     state.sinceUnlock = 0;
     state.sinceUnlockCorrect = 0;
+    lastDone = '';
+    stopSpeaking();
 
     while (state.buffer.length < 3) addLine();
     renderWindow();
@@ -809,6 +1871,7 @@
   function save() {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
+        mode: state.mode,
         level: state.level,
         best: Math.round(state.best),
         settings: state.settings
@@ -821,6 +1884,7 @@
       var raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return;
       var d = JSON.parse(raw);
+      if (d.mode === 'vocab' || d.mode === 'letters') state.mode = d.mode;
       if (typeof d.level === 'number' && d.level >= 1 && d.level <= LETTER_ORDER.length) {
         state.level = d.level;
       }
@@ -831,12 +1895,27 @@
       if (d.settings && typeof d.settings === 'object') {
         state.settings.sound = d.settings.sound !== false;
         state.settings.strict = d.settings.strict === true;
+        state.settings.gloss = d.settings.gloss !== false;
+        state.settings.voice = d.settings.voice !== false;
       }
     } catch (e) { /* 损坏则用默认值 */ }
   }
 
   /* ================= 设置按钮 ================= */
   function syncTools() {
+    var bm = $('#btn-mode');
+    bm.classList.toggle('on', state.mode === 'vocab');
+    bm.textContent = '词库 ' + (state.mode === 'vocab' ? '高考3500' : '字母渐进');
+
+    var bg = $('#btn-gloss');
+    bg.classList.toggle('on', state.settings.gloss);
+    bg.textContent = '释义 ' + (state.settings.gloss ? '开' : '关');
+
+    var bv = $('#btn-voice');
+    bv.classList.toggle('on', state.settings.voice && !!synth);
+    bv.textContent = synth ? ('朗读 ' + (state.settings.voice ? '开' : '关')) : '朗读 不支持';
+    bv.disabled = !synth;
+
     var bs = $('#btn-sound');
     bs.classList.toggle('on', state.settings.sound);
     bs.textContent = '声音 ' + (state.settings.sound ? '开' : '关');
@@ -847,6 +1926,27 @@
   }
 
   function bindTools() {
+    $('#btn-mode').addEventListener('click', function (e) {
+      e.currentTarget.blur();
+      state.mode = state.mode === 'vocab' ? 'letters' : 'vocab';
+      applyMode();
+      restart();          // 立刻按新词库重排文本
+      syncTools();
+      save();
+      toast(state.mode === 'vocab'
+        ? '词库：高考 3500（' + VOCAB.length + ' 词）'
+        : '词库：字母渐进（起手 8 键）');
+    });
+    $('#btn-gloss').addEventListener('click', function (e) {
+      state.settings.gloss = !state.settings.gloss;
+      syncTools(); updateGloss(); save(); e.currentTarget.blur();
+    });
+    $('#btn-voice').addEventListener('click', function (e) {
+      state.settings.voice = !state.settings.voice;
+      if (!state.settings.voice) stopSpeaking();
+      else speak(lastDone);          // 打开时立刻读一遍刚打完的词
+      syncTools(); save(); e.currentTarget.blur();
+    });
     $('#btn-sound').addEventListener('click', function (e) {
       state.settings.sound = !state.settings.sound;
       syncTools(); save(); e.currentTarget.blur();
@@ -860,7 +1960,8 @@
     });
     $('#btn-reset').addEventListener('click', function (e) {
       e.currentTarget.blur();
-      if (!window.confirm('确定要重置等级和最佳记录吗？')) return;
+      var ask = state.mode === 'letters' ? '确定要重置等级和最佳记录吗？' : '确定要重置最佳记录吗？';
+      if (!window.confirm(ask)) return;
       state.keystrokes = 0;   // 让 restart() 的结算跳过，避免把刚清掉的记录写回来
       state.best = 0;
       elBest.textContent = '0';
@@ -888,6 +1989,7 @@
     }
     if (e.key === 'Tab') {
       e.preventDefault();
+      speak(lastDone);      // 重听刚打完的那个词
       return;
     }
     if (e.key === ' ') {

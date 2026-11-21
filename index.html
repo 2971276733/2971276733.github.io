@@ -225,7 +225,7 @@
   <section class="kbd" id="kbd" aria-hidden="true"></section>
 
   <footer class="foot">
-    <span class="ver" id="ver" title="页面版本">v6</span>
+    <span class="ver" id="ver" title="页面版本">v7</span>
     <div class="letters" id="letters" title="已解锁的字母"></div>
     <div class="tools">
       <button class="tool" id="btn-mode" type="button">词库 高考3500</button>
@@ -1629,10 +1629,13 @@
   // 安卓 WebView / 小米自带浏览器之类没有 speechSynthesis，就退回在线发音接口。
   var synth = (typeof window.speechSynthesis !== 'undefined' && window.speechSynthesis) ? window.speechSynthesis : null;
   var voices = { en: null, zh: null };
-  var audioEl = null;
   var ttsBroken = false;
   var ttsFails = 0;
-  var clipQueue = [];
+  var clipEls = [];      // 三段音频各自的 <audio>，创建即开始预载
+  var clipRates = [];
+  var seqOrder = [];     // 播放顺序（重复的部分直接重播，不重新请求）
+  var seqIdx = 0;
+  var curEl = null;
   var voiceMode = synth ? 'system' : 'url';   // 'system' 系统语音 / 'url' 在线发音
 
   function pickVoice(lang) {
@@ -1671,14 +1674,14 @@
     setTimeout(checkVoices, 1500);
   }
 
-  // 英文用有道词典发音；中文和拼写有道不支持，用百度翻译的 TTS
+  // 英文单词和拼写都走百度，保证是同一个音色；只有中文用它自己的中文音色
   function enUrl(word) {
-    return 'https://dict.youdao.com/dictvoice?type=2&audio=' + encodeURIComponent(word);
+    return 'https://fanyi.baidu.com/gettts?lan=en&spd=3&source=web&text=' + encodeURIComponent(word);
   }
   function zhUrl(text) {
     return 'https://fanyi.baidu.com/gettts?lan=zh&spd=3&source=web&text=' + encodeURIComponent(text);
   }
-  // 拼写必须用句点分隔，否则 TTS 会当成一个单词念（实测 r e l... 只有 1.9s，r. e. l... 才是 5.5s）
+  // 拼写必须用句点分隔，否则 TTS 会当成一个单词念
   function spellUrl(text) {
     return 'https://fanyi.baidu.com/gettts?lan=en&spd=3&source=web&text=' + encodeURIComponent(text);
   }
@@ -1687,21 +1690,23 @@
     return word.split('').join('. ') + '.';
   }
 
-  // 释义开头的 "n." "vt." "adj. / n." 这类词性不念，只念中文
+  // 释义里的 "n." "vt." "ad." 这类词性标记（可能出现在句中）不念，只念中文
   function cnSpeechText(m) {
     var s = String(m || '');
-    s = s.replace(/^[a-zA-Z][a-zA-Z.\/\s]*?(?=[\u4e00-\u9fa5（])/, '');
-    s = s.replace(/…+$/, '').replace(/\s+/g, ' ').trim();
+    s = s.replace(/\b(?:n|v|vt|vi|adj|adv|ad|prep|conj|pron|art|num|int|aux|pl|abbr)\.\s*/gi, ' ');
+    s = s.replace(/…+$/, '').replace(/\s+/g, '').trim();
     return /[\u4e00-\u9fa5]/.test(s) ? s : '';
   }
 
-  function ensureAudio() {
-    if (audioEl) return audioEl;
-    audioEl = new Audio();
-    audioEl.preload = 'auto';
-    audioEl.addEventListener('error', onAudioError);
-    audioEl.addEventListener('playing', function () { ttsFails = 0; });
-    return audioEl;
+  function clearClips() {
+    for (var i = 0; i < clipEls.length; i++) {
+      try {
+        clipEls[i].onended = null;
+        clipEls[i].pause();
+        clipEls[i].src = '';
+      } catch (e) { /* 忽略 */ }
+    }
+    clipEls = []; clipRates = []; seqOrder = []; seqIdx = 0; curEl = null;
   }
 
   function onAudioError() {
@@ -1711,27 +1716,46 @@
       syncTools();
       toast('这台设备放不出声音，换 Chrome / Edge 试试');
     }
-    setTimeout(nextClip, 0);               // 这一段失败就跳过，别卡住后面的中文
+    if (curEl) { curEl = null; setTimeout(playSeq, 20); }   // 这一段失败就跳过，别卡住后面的
   }
 
-  function playChain(urls) {
-    clipQueue = urls.slice();
-    nextClip();
-  }
-
-  function nextClip() {
-    if (!clipQueue.length) return;
-    var url = clipQueue.shift();
-    try {
-      var a = ensureAudio();
-      a.onended = function () { a.onended = null; nextClip(); };
-      a.pause();
-      a.src = url;
-      var p = a.play();
-      if (p && p.catch) p.catch(function () { /* 自动播放策略拦截时静默 */ });
-    } catch (e) {
-      onAudioError();
+  // 三段音频同时开始预载，播完一段立刻接下一段，中间不再等网络
+  function playChain(urls, rates) {
+    clearClips();
+    for (var i = 0; i < urls.length; i++) {
+      if (!urls[i]) continue;
+      var a = new Audio();
+      a.preload = 'auto';
+      a.src = urls[i];
+      a.addEventListener('error', onAudioError);
+      a.addEventListener('playing', function () { ttsFails = 0; });
+      clipEls.push(a);
+      clipRates.push(rates[i] || 1);
     }
+    var order = [];
+    for (var k = 0; k < clipEls.length; k++) order.push(k);
+    seqOrder = [];
+    for (var r = 0; r < SAY_REPEAT; r++) seqOrder = seqOrder.concat(order);
+    seqIdx = 0;
+    playSeq();
+  }
+
+  function playSeq() {
+    if (seqIdx >= seqOrder.length) return;
+    var i = seqOrder[seqIdx];
+    seqIdx += 1;
+    var a = clipEls[i];
+    if (!a) { playSeq(); return; }
+    curEl = a;
+    a.onended = function () {
+      if (curEl !== a) return;
+      curEl = null;
+      setTimeout(playSeq, 15);            // 留一点点尾巴，免得两段粘连
+    };
+    try { a.currentTime = 0; } catch (e) { /* 还没解码完，忽略 */ }
+    a.playbackRate = clipRates[i] || 1;
+    var p = a.play();
+    if (p && p.catch) p.catch(function () { /* 自动播放策略拦截时静默 */ });
   }
 
   function canSpeak() {
@@ -1754,39 +1778,32 @@
   function announce(word) {
     if (!word || !state.settings.voice) return;
     var cn = cnSpeechText(GLOSS[word]);
-
-    var one = [{ text: word, lang: 'en', rate: 0.95 }];
-    if (cn) one.push({ text: cn, lang: 'zh', rate: 1 });
-    one.push({ text: spellText(word), lang: 'spell', rate: 0.8 });
-
-    var seq = [];
-    for (var r = 0; r < SAY_REPEAT; r++) seq = seq.concat(one);
+    var spell = spellText(word);
 
     if (synth && voiceMode === 'system') {
       try {
         // 打太快时掐掉上一条，保证音画同步；没在播就别 cancel（某些浏览器会吞掉下一条）
         if (synth.speaking || synth.pending) synth.cancel();
-        for (var i = 0; i < seq.length; i++) utter(seq[i].text, seq[i].lang, seq[i].rate);
+        for (var r = 0; r < SAY_REPEAT; r++) {
+          utter(word, 'en', 1);
+          if (cn) utter(cn, 'zh', 1.1);
+          utter(spell, 'en', 1.15);
+        }
         return;
       } catch (e) { /* 掉到在线发音 */ }
     }
 
-    var urls = [];
-    for (var j = 0; j < seq.length; j++) {
-      if (seq[j].lang === 'zh') urls.push(zhUrl(seq[j].text));
-      else if (seq[j].lang === 'spell') urls.push(spellUrl(seq[j].text));
-      else urls.push(enUrl(seq[j].text));
-    }
-    playChain(urls);
+    // 在线：三段各请求一次，重复的那遍直接重播，不再下载
+    playChain(
+      [enUrl(word), cn ? zhUrl(cn) : '', spellUrl(spell)],
+      [1.05, 1.15, 1.35]                    // 拼写这段本来字间停顿就长，语速提上来更连贯
+    );
   }
 
   function stopSpeaking() {
-    clipQueue = [];
+    clearClips();
     if (synth) {
       try { synth.cancel(); } catch (e) {}
-    }
-    if (audioEl) {
-      try { audioEl.onended = null; audioEl.pause(); audioEl.currentTime = 0; } catch (e) {}
     }
   }
 

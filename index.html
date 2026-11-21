@@ -223,7 +223,7 @@
   <section class="kbd" id="kbd" aria-hidden="true"></section>
 
   <footer class="foot">
-    <span class="ver" id="ver" title="页面版本">v3</span>
+    <span class="ver" id="ver" title="页面版本">v5</span>
     <div class="letters" id="letters" title="已解锁的字母"></div>
     <div class="tools">
       <button class="tool" id="btn-mode" type="button">词库 高考3500</button>
@@ -1626,28 +1626,33 @@
   // 首选系统语音合成（零延迟、离线可用）；
   // 安卓 WebView / 小米自带浏览器之类没有 speechSynthesis，就退回在线发音接口。
   var synth = (typeof window.speechSynthesis !== 'undefined' && window.speechSynthesis) ? window.speechSynthesis : null;
-  var enVoice = null;
+  var voices = { en: null, zh: null };
   var audioEl = null;
   var ttsBroken = false;
   var ttsFails = 0;
+  var clipQueue = [];
   var voiceMode = synth ? 'system' : 'url';   // 'system' 系统语音 / 'url' 在线发音
 
-  function pickVoice() {
+  function pickVoice(lang) {
     if (!synth) return null;
+    if (voices[lang]) return voices[lang];
     var list = [];
     try { list = synth.getVoices() || []; } catch (e) { list = []; }
     if (!list.length) return null;
-    var en = [];
+    var want = lang === 'zh' ? /^zh/i : /^en/i;
+    var cands = [];
     for (var i = 0; i < list.length; i++) {
-      if (/^en/i.test(list[i].lang)) en.push(list[i]);
+      if (want.test(list[i].lang)) cands.push(list[i]);
     }
-    if (!en.length) return null;
-    // 优先挑念得清楚的英语女声
-    for (var j = 0; j < en.length; j++) {
-      if (/natural|aria|zira|samantha|google us english/i.test(en[j].name)) { enVoice = en[j]; return enVoice; }
+    if (!cands.length) return null;
+    var good = lang === 'zh'
+      ? /natural|xiaoxiao|huihui|yaoyao|tingting|kangkang|google 普通话/i
+      : /natural|aria|zira|samantha|google us english/i;
+    for (var j = 0; j < cands.length; j++) {
+      if (good.test(cands[j].name)) { voices[lang] = cands[j]; return voices[lang]; }
     }
-    enVoice = en[0];
-    return enVoice;
+    voices[lang] = cands[0];
+    return voices[lang];
   }
 
   // 有的设备装了 speechSynthesis 却没有可用语音包，念不出声，同样走在线发音
@@ -1659,13 +1664,42 @@
   }
 
   if (synth) {
-    pickVoice();
-    synth.onvoiceschanged = function () { enVoice = null; checkVoices(); pickVoice(); };
+    pickVoice('en');
+    synth.onvoiceschanged = function () { voices.en = null; voices.zh = null; checkVoices(); };
     setTimeout(checkVoices, 1500);
   }
 
-  function ttsUrl(word) {
+  // 英文用有道词典发音；中文和拼写有道不支持，用百度翻译的 TTS
+  function enUrl(word) {
     return 'https://dict.youdao.com/dictvoice?type=2&audio=' + encodeURIComponent(word);
+  }
+  function zhUrl(text) {
+    return 'https://fanyi.baidu.com/gettts?lan=zh&spd=3&source=web&text=' + encodeURIComponent(text);
+  }
+  // 拼写必须用句点分隔，否则 TTS 会当成一个单词念（实测 r e l... 只有 1.9s，r. e. l... 才是 5.5s）
+  function spellUrl(text) {
+    return 'https://fanyi.baidu.com/gettts?lan=en&spd=3&source=web&text=' + encodeURIComponent(text);
+  }
+
+  function spellText(word) {
+    return word.split('').join('. ') + '.';
+  }
+
+  // 释义开头的 "n." "vt." "adj. / n." 这类词性不念，只念中文
+  function cnSpeechText(m) {
+    var s = String(m || '');
+    s = s.replace(/^[a-zA-Z][a-zA-Z.\/\s]*?(?=[\u4e00-\u9fa5（])/, '');
+    s = s.replace(/…+$/, '').replace(/\s+/g, ' ').trim();
+    return /[\u4e00-\u9fa5]/.test(s) ? s : '';
+  }
+
+  function ensureAudio() {
+    if (audioEl) return audioEl;
+    audioEl = new Audio();
+    audioEl.preload = 'auto';
+    audioEl.addEventListener('error', onAudioError);
+    audioEl.addEventListener('playing', function () { ttsFails = 0; });
+    return audioEl;
   }
 
   function onAudioError() {
@@ -1675,20 +1709,23 @@
       syncTools();
       toast('这台设备放不出声音，换 Chrome / Edge 试试');
     }
+    setTimeout(nextClip, 0);               // 这一段失败就跳过，别卡住后面的中文
   }
 
-  function playUrl(word) {
-    if (ttsBroken) return;
+  function playChain(urls) {
+    clipQueue = urls.slice();
+    nextClip();
+  }
+
+  function nextClip() {
+    if (!clipQueue.length) return;
+    var url = clipQueue.shift();
     try {
-      if (!audioEl) {
-        audioEl = new Audio();
-        audioEl.preload = 'auto';
-        audioEl.addEventListener('error', onAudioError);
-        audioEl.addEventListener('playing', function () { ttsFails = 0; });
-      }
-      audioEl.pause();
-      audioEl.src = ttsUrl(word);
-      var p = audioEl.play();
+      var a = ensureAudio();
+      a.onended = function () { a.onended = null; nextClip(); };
+      a.pause();
+      a.src = url;
+      var p = a.play();
       if (p && p.catch) p.catch(function () { /* 自动播放策略拦截时静默 */ });
     } catch (e) {
       onAudioError();
@@ -1699,31 +1736,55 @@
     return !(ttsBroken && !synth);
   }
 
-  function speak(text) {
-    if (!text || !state.settings.voice) return;
+  function utter(text, lang, rate) {
+    var u = new SpeechSynthesisUtterance(text);
+    u.lang = lang === 'zh' ? 'zh-CN' : 'en-US';
+    u.rate = rate || 1;
+    u.pitch = 1;
+    var v = pickVoice(lang === 'zh' ? 'zh' : 'en');
+    if (v) u.voice = v;
+    synth.speak(u);
+  }
+
+  // 一个词念一整段：英文单词 → 中文意思 → 逐字母拼写，整段重复 SAY_REPEAT 遍
+  var SAY_REPEAT = 2;
+
+  function announce(word) {
+    if (!word || !state.settings.voice) return;
+    var cn = cnSpeechText(GLOSS[word]);
+
+    var one = [{ text: word, lang: 'en', rate: 0.95 }];
+    if (cn) one.push({ text: cn, lang: 'zh', rate: 1 });
+    one.push({ text: spellText(word), lang: 'spell', rate: 0.8 });
+
+    var seq = [];
+    for (var r = 0; r < SAY_REPEAT; r++) seq = seq.concat(one);
 
     if (synth && voiceMode === 'system') {
       try {
         // 打太快时掐掉上一条，保证音画同步；没在播就别 cancel（某些浏览器会吞掉下一条）
         if (synth.speaking || synth.pending) synth.cancel();
-        var u = new SpeechSynthesisUtterance(text);
-        u.lang = 'en-US';
-        u.rate = 0.92;
-        u.pitch = 1;
-        if (enVoice || pickVoice()) u.voice = enVoice;
-        synth.speak(u);
+        for (var i = 0; i < seq.length; i++) utter(seq[i].text, seq[i].lang, seq[i].rate);
         return;
       } catch (e) { /* 掉到在线发音 */ }
     }
-    playUrl(text);
+
+    var urls = [];
+    for (var j = 0; j < seq.length; j++) {
+      if (seq[j].lang === 'zh') urls.push(zhUrl(seq[j].text));
+      else if (seq[j].lang === 'spell') urls.push(spellUrl(seq[j].text));
+      else urls.push(enUrl(seq[j].text));
+    }
+    playChain(urls);
   }
 
   function stopSpeaking() {
+    clipQueue = [];
     if (synth) {
       try { synth.cancel(); } catch (e) {}
     }
     if (audioEl) {
-      try { audioEl.pause(); audioEl.currentTime = 0; } catch (e) {}
+      try { audioEl.onended = null; audioEl.pause(); audioEl.currentTime = 0; } catch (e) {}
     }
   }
 
@@ -1823,7 +1884,7 @@
     if (spans && spans[ci]) spans[ci].classList.add(ok ? 'o' : 'b');
 
     var done = completedWordAt(li, ci);   // 打完一个词的最后一个字母？
-    if (done) { lastDone = done; speak(done); }
+    if (done) { lastDone = done; announce(done); }
 
     state.col = ci + 1;
     if (state.col >= state.buffer[li].length) {
@@ -2010,7 +2071,7 @@
     $('#btn-voice').addEventListener('click', function (e) {
       state.settings.voice = !state.settings.voice;
       if (!state.settings.voice) stopSpeaking();
-      else speak(lastDone);          // 打开时立刻读一遍刚打完的词
+      else announce(lastDone);          // 打开时立刻读一遍刚打完的词
       syncTools(); save(); e.currentTarget.blur();
     });
     $('#btn-sound').addEventListener('click', function (e) {
@@ -2055,7 +2116,7 @@
     }
     if (e.key === 'Tab') {
       e.preventDefault();
-      speak(lastDone);      // 重听刚打完的那个词
+      announce(lastDone);      // 重听刚打完的那个词
       return;
     }
     if (e.key === ' ') {

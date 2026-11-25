@@ -225,7 +225,7 @@
   <section class="kbd" id="kbd" aria-hidden="true"></section>
 
   <footer class="foot">
-    <span class="ver" id="ver" title="页面版本">v7</span>
+    <span class="ver" id="ver" title="页面版本">v4b</span>
     <div class="letters" id="letters" title="已解锁的字母"></div>
     <div class="tools">
       <button class="tool" id="btn-mode" type="button">词库 高考3500</button>
@@ -1674,9 +1674,9 @@
     setTimeout(checkVoices, 1500);
   }
 
-  // 英文单词和拼写都走百度，保证是同一个音色；只有中文用它自己的中文音色
+  // 英文单词用有道（v4 的音色）；中文和拼写用百度
   function enUrl(word) {
-    return 'https://fanyi.baidu.com/gettts?lan=en&spd=3&source=web&text=' + encodeURIComponent(word);
+    return 'https://dict.youdao.com/dictvoice?type=2&audio=' + encodeURIComponent(word);
   }
   function zhUrl(text) {
     return 'https://fanyi.baidu.com/gettts?lan=zh&spd=3&source=web&text=' + encodeURIComponent(text);
@@ -1772,32 +1772,40 @@
     synth.speak(u);
   }
 
-  // 一个词念一整段：英文单词 → 中文意思 → 逐字母拼写，整段重复 SAY_REPEAT 遍
-  var SAY_REPEAT = 2;
+  // 一个词念一整段：英文单词 → 中文意思（→ 逐字母拼写），整段重复 SAY_REPEAT 遍
+  var SAY_SPELL = false;    // 关掉逐字母拼写
+  var SAY_REPEAT = 1;       // 整段不重复
 
   function announce(word) {
     if (!word || !state.settings.voice) return;
     var cn = cnSpeechText(GLOSS[word]);
-    var spell = spellText(word);
+
+    var parts = [{ text: word, lang: 'en', rate: 1.05 }];
+    if (cn) parts.push({ text: cn, lang: 'zh', rate: 1.15 });
+    if (SAY_SPELL) parts.push({ text: spellText(word), lang: 'spell', rate: 1.35 });
 
     if (synth && voiceMode === 'system') {
       try {
         // 打太快时掐掉上一条，保证音画同步；没在播就别 cancel（某些浏览器会吞掉下一条）
         if (synth.speaking || synth.pending) synth.cancel();
         for (var r = 0; r < SAY_REPEAT; r++) {
-          utter(word, 'en', 1);
-          if (cn) utter(cn, 'zh', 1.1);
-          utter(spell, 'en', 1.15);
+          for (var i = 0; i < parts.length; i++) {
+            utter(parts[i].text, parts[i].lang === 'zh' ? 'zh' : 'en', parts[i].rate);
+          }
         }
         return;
       } catch (e) { /* 掉到在线发音 */ }
     }
 
-    // 在线：三段各请求一次，重复的那遍直接重播，不再下载
-    playChain(
-      [enUrl(word), cn ? zhUrl(cn) : '', spellUrl(spell)],
-      [1.05, 1.15, 1.35]                    // 拼写这段本来字间停顿就长，语速提上来更连贯
-    );
+    // 在线：各段同时预载，重复的那遍直接重播，不再下载
+    var urls = [], rates = [];
+    for (var j = 0; j < parts.length; j++) {
+      var u = parts[j].lang === 'zh' ? zhUrl(parts[j].text)
+        : (parts[j].lang === 'spell' ? spellUrl(parts[j].text) : enUrl(parts[j].text));
+      urls.push(u);
+      rates.push(parts[j].rate);
+    }
+    playChain(urls, rates);
   }
 
   function stopSpeaking() {

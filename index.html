@@ -158,7 +158,25 @@
     background:#111520; border:1px solid #1c2130; color:#2f3646; text-transform:lowercase;
   }
   .letter.on{ background:var(--f); border-color:transparent; color:#0a0d14; font-weight:700; }
-  .tools{ display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; }
+  .tools{ display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; align-items:center; }
+
+  /* 词库下拉 */
+  .selectwrap{ position:relative; display:inline-flex; }
+  .selectwrap::after{
+    content:''; position:absolute; right:11px; top:50%; margin-top:-1px;
+    border-left:4px solid transparent; border-right:4px solid transparent;
+    border-top:5px solid #6b7289; pointer-events:none;
+  }
+  .select{
+    appearance:none; -webkit-appearance:none; font-family:inherit; font-size:11.5px;
+    letter-spacing:.02em; padding:7px 28px 7px 12px; border-radius:8px; cursor:pointer;
+    color:#c3cadc; background:#131721; border:1px solid #212736; outline:none;
+    max-width:230px; text-overflow:ellipsis;
+  }
+  .select:hover{ border-color:#333c52; background:#171c28; }
+  .select:focus{ border-color:var(--accent); }
+  .select option{ background:#131721; color:#c3cadc; }
+  .select optgroup{ background:#0f131b; color:#6b7289; font-style:normal; }
   .ver{
     font-family:var(--mono); font-size:10px; color:#333b4d; letter-spacing:.06em;
     user-select:none; flex:none;
@@ -204,7 +222,7 @@
     <div class="stat grow">
       <div class="label">
         <span id="lbl-grade">等级 <b id="s-level">8</b>/26</span>
-        <span id="lbl-vocab" hidden>词库 高考3500（<b id="s-vocab">0</b> 词）</span>
+        <span id="lbl-vocab" hidden>词库 <b id="s-vocab-tag">全部词表</b> · <b id="s-vocab">0</b> 词</span>
         · 最佳 <b id="s-best">0</b> wpm
       </div>
       <div class="bar" id="bar-wrap"><i id="lesson-bar"></i></div>
@@ -225,10 +243,10 @@
   <section class="kbd" id="kbd" aria-hidden="true"></section>
 
   <footer class="foot">
-    <span class="ver" id="ver" title="页面版本">v4b</span>
+    <span class="ver" id="ver" title="页面版本">v12</span>
     <div class="letters" id="letters" title="已解锁的字母"></div>
     <div class="tools">
-      <button class="tool" id="btn-mode" type="button">词库 高考3500</button>
+      <span class="selectwrap"><select id="source-select" class="select" title="选择词库 / 课程"></select></span>
       <button class="tool" id="btn-gloss" type="button">释义</button>
       <button class="tool" id="btn-voice" type="button">朗读</button>
       <button class="tool" id="btn-sound" type="button">声音</button>
@@ -1175,24 +1193,289 @@
     'yourself\tpron. 你自己\nyourselves\tpron. 你们自己\nyouth\tn. 青春；青年\nyummy\tadj. 很好吃的\nzebra\tn. 斑马\n' +
     'zero\tn. & num.零,零度,零点\nzip\tv.& n.拉开(或扣上)……的拉链；拉链\nzipper\tn. 拉链\nzone\tn. 区域；范围\nzoo\tn. 动物园\n' +
     'zoom\tv. 快速移动，迅速前往，猛涨\n';
-  // 词条表每行是「单词 \t 中文释义」，解析成词数组 + 释义表
+  // 教材补充词表（《你还在背单词吗》里词库没收录的词），同样「单词 \t 释义」格式。
+  // 由 dev/build-book.js 注入，留空不影响使用。
+  var BOOK_SRC =
+    'respective\tadj.分别的,各自的\nrevive\tv.复活,苏醒\nvirtual\tadj.事实上的;虚拟的\nrelease\tn.释放;发行 v.释放;发行\n' +
+    'spectacular\tadj.壮观的,惊人的\nprosperity\tn.繁荣,昌盛\nevil\tadj.恶毒的 n.罪恶\nspectator\tn.观众\n' +
+    'prospect\tn.前途;预期\ninspection\tn.视察;检查,查看,审视\nventure\tn.冒险行为 v.冒险\nsurf\tv.冲浪;浏览 n.海浪\n' +
+    'speculate\tv.推测,推断;投机\nreaction\tn.反应,回应;反作用\nsuspicious\tadj.可疑的,猜疑的\n' +
+    'actually\tadv.的确,真实地;实际上\nadorable\tadj.可爱的,讨人喜爱的\ncapable\tadj.有能力的;能胜任的\nprey\tv.捕获;坑骗 n.猎物\n' +
+    'guy\tn.家伙;伙计们\ndisable\tv.使丧失能力;使残疾\ncapture\tv.捕获;引起 n.(被)捕获\nsustainability\tn.持续性\n' +
+    'sustain\tv.维持;支撑,承担\nmaintain\tv.维持;维修;坚持认为\nstretch\tv.拉长;延伸;伸展\ncapacity\tn.容量;领悟能力\n' +
+    'enable\tv.使能够;使可能\nthreaten\tv.恐吓;对……构成威胁\ndeceive\tv.欺骗;蒙骗;诓骗\nthreat\tn.恐吓,威胁;凶兆\n' +
+    'exceptional\tadj.杰出的,优秀的;特别的\nfrightened\tadj.惊吓的;受惊的\nexcess\tn.超过 adj.额外的\n' +
+    'highlight\tv.突出;强调\nperceive\tv.注意到,察觉\ntighten\tv.绑紧;加强;使变紧\nenclose\tv.把……围起来;附入\n' +
+    'stripe\tn.条纹;线条\nmechanic\tn.机械师;力学;机械学\ninfection\tn.传染;感染;传染病\nodd\tadj.奇怪的;奇数的\n' +
+    'strap\tn.皮带 v.用皮带捆绑\nprior\tadj.先前的;优先的\nencounter\tv.遭遇;遇见 n.遭遇;遇见\nimpact\tn.碰撞 v.影响\n' +
+    'facilitate\tv.促进;促使\nfacility\tn.设施;设备;天赋;才能\ninfluential\tadj.有很大影响的\npriority\tn.优先,优先权\n' +
+    'calculator\tn.计算器\nproceed\tv.继续做;行进\nprocessor\tn.加工者;处理器\ndescend\tv.下来,下降\n' +
+    'countdown\tn.倒计时;倒数读秒\ninfect\tv.传染;使感染;影响\ndescendant\tn.子孙,后裔,后代\nprecede\tv.在……之前发生\n' +
+    'landscape\tn.风景,景色;风景画\ncalendar\tn.日历,历书;历法\nrecall\tv.记起;召回,收回\nprocession\tn.队伍,行列\n' +
+    'manufacture\tn.大量制造;批量生产\ncountless\tadj.无数的;数不胜数的\nstrip\tn.条,带 v.除去,剥去\n' +
+    'ambitious\tadj.有野心的;费力的\nacquaint\tv.使熟悉,使了解\nterritory\tn.领土,领地,领域\nascend\tv.升高,上升;攀登,登上\n' +
+    'efficient\tadj.效率高的;有功效的\nsupervise\tv.监督,管理\nretail\tn.零售 adv.零售 v.零售\ngrocery\tn.食品杂货铺\n' +
+    'weave\tv.织,编\nvisible\tadj.可见的;明显的\ntide\tn.潮汐,潮水\njournal\tn.期刊,日报;日记\nmicrophone\tn.话筒;麦克风\n' +
+    'route\tn.路线;路途;途径\nviewpoint\tn.观点,看法\nfluid\tn.液体 adj.流动的\nrevise\tv.修改;改变;复习\n' +
+    'device\tn.仪器,设备;手段,方法\ndetail\tn.细节,详情\nvision\tn.视力;视野,幻象\nvisualise\tv.构思,设想;使可视化\n' +
+    'wholesale\tn.批发 v.批发销售\ndevise\tv.设计,发明;想出\norchestra\tn.管弦乐队\nsprout\tv.发芽;出现 n.芽\n' +
+    'entertain\tv.招待,款待;娱乐\nportion\tn.部分,一份\nhumourous\tadj.富于幽默的\nanticipate\tv.预期,期望\n' +
+    'vanish\tv.突然消失\nproportion\tn.比例,部分\ndepart\tv.离开,出发,启程\nsurvey\tn.调查 v.俯瞰;调查\nwarn\tv.警告;提醒\n' +
+    'coworker\tn.合作者;同事\ninvestigate\tv.调查,研究\nanalyse\tv.分析\nstatistic\tn.统计数字;统计数据\n' +
+    'parttime\tadj.兼职的 adv.兼职地\ninvest\tv.投资,投入\nrestore\tv.恢复;修复;归还\nsmash\tv.打碎,粉碎,猛击\n' +
+    'proof\tn.证据;证明\nresource\tn.资源 v.向……提供资源\ncollide\tv.碰撞;抵触,冲突\nquote\tv.引用;引述 n.引语\n' +
+    'financial\tadj.财政的;金融的\ncrisis\tn.危机;危难时刻\nwaterproof\tn.防水衣物 adj.防水的\ndeprive\tv.剥夺,使丧失\n' +
+    'source\tn.来源 v.从……获得\nasset\tn.资产,财产\nderive\tv.源于;得到,获得\nepisode\tn.插曲,一段情节;一集\n' +
+    'disapprove\tv.反对,否决\naccommodate\tv.为……提供住宿;适应\nenhance\tv.增强;提高\nproperty\tn.财产;房产\n' +
+    'estate\tn.房地产,不动产;财产\nstructure\tn.结构;建筑物\nclash\tn.冲突 v.冲突,争论\nupdate\tv.更新 n.最新消息;更新\n' +
+    'disappointed\tadj.失望的;沮丧的\nbind\tv.捆绑,使结合;约束\nsociable\tadj.好交际的;友善的\nmilitary\tadj.军事的;军队的\n' +
+    'launch\tv.发射;启动 n.发射;启动\nisolate\tv.(使)隔离,孤立\nindividual\tn.个体 adj.个别的\n' +
+    'auxiliary\tadj.辅助的 n.辅助人员\nweapon\tn.武器\nresistance\tn.反对;抵制\ncombination\tn.结合;联合;混合\n' +
+    'persist\tv.坚持;固执;继续存在\nvenue\tn.活动场地;举办地点\nlogical\tadj.合乎逻辑的\nimplicit\tadj.暗示的,含蓄的\n' +
+    'barely\tadv.仅仅;几乎不;刚好\nembarrassed\tadj.尴尬的\nhint\tn.暗示,提示 v.暗示,提示\ngenius\tn.天才;天赋\n' +
+    'conscious\tadj.意识到的;有意的\nrevenue\tn.税收,国家的收入;收益\ngenuine\tadj.真的;真诚的\nregulate\tv.管理;调节\n' +
+    'imply\tv.暗示,意味\nreveal\tv.揭露;显示;表明\nparadise\tn.天堂,乐土;乐园\nparade\tn.游行;阅兵 v.游行\n' +
+    'naked\tadj.裸体的;无遮盖的\ndemonstrate\tv.证明;说明;显露\nfrequently\tadv.频繁地;经常\nbet\tv.用……打赌 n.打赌\n' +
+    'frequency\tn.频繁;频率\nbarrel\tn.桶;一桶(的量)\nillustrate\tv.说明,阐述\nliable\tadj.可能的;有责任的\n' +
+    'imitate\tv.模仿,仿制\nheritage\tn.遗产\ninitiate\tv.开始,发起,创始\nexclaim\tv.呼喊,呼叫,大声说\n' +
+    'claim\tn.声称;要求;索赔 v.声称;要求;索\ninherit\tv.继承,经遗传获得\nfortunately\tadv.幸运地\nfate\tn.命运\n' +
+    'dispute\tn.争论,辩论 v.争论,辩论\nsimulate\tv.模仿;假装\nstimulate\tv.促进,促使;激发\nreclaim\tv.开垦;回收;再利用\n' +
+    'considerable\tadj.相当大(或多)的\nlabel\tn.标签;商标 v.贴标签于\nnevertheless\tadv.然而,不过,尽管如此\n' +
+    'initiative\tn.主动性,积极性\nhesitate\tv.犹豫,踌躇\nproclaim\tv.宣告,公布;声明\ngloomy\tadj.阴暗的;沮丧的\n' +
+    'tame\tadj.驯服的 v.驯服\nelastic\tadj.有弹性的;灵活的\ncurse\tn.咒骂,咒语 v.诅咒\nmelt\tv.(使)融化,(使)熔化\n' +
+    'vessel\tn.船;容器;血管\nblast\tv.爆炸 n.爆炸;一阵\nboost\tv.使增长 n.增长;帮助\nvacuum\tn.真空\ndumb\tadj.哑的;愚蠢的\n' +
+    'volume\tn.体积;容积;音量;一卷\nboast\tv.自夸 n.夸耀\nsufficient\tadj.足够的;充足的\ninsult\tn.辱骂;侮辱;冒犯 v.辱骂;侮辱;冒\n' +
+    'superficial\tadj.表面的;肤浅的\ncareer\tn.生涯,职业\ncargo\tn.货物\njoint\tn.关节 adj.联合的\n' +
+    'exciting\tadj.令人兴奋的\nlicence\tn.执照,许可证\nemphasis\tn.强调;重视\nexcited\tadj.兴奋的\n' +
+    'celebrity\tn.名人;名望\nfeature\tn.特征,特色;面貌\nspark\tn.火星,火花\nemphasise\tv.强调;重视;使突出\n' +
+    'civilisation\tn.文明\ncommunity\tn.社区;社会;界\ncomparison\tn.对比;比较\ncomplain\tv.抱怨;投诉\n' +
+    'collapse\tv.倒塌;晕倒;暴跌 n.倒塌;晕倒;暴\ndespair\tn.绝望 v.绝望\ncomprise\tv.包括;由……组成\ncommerce\tn.商业,贸易\n' +
+    'misery\tn.痛苦,苦恼\ncomplicated\tadj.复杂的;难懂的\nexclude\tv.不包括\ncomprehensive\tadj.全面的;综合性的\n' +
+    'lick\tv.舔 n.舔\ncomparative\tadj.比较的,相对的\ndecent\tadj.体面的;正派的\nsubsequent\tadj.随后的;后来的\n' +
+    'donate\tv.捐赠,赠予;捐献\nkneel\tv.跪下\norganic\tadj.有机的;器官的\nghost\tn.鬼;幽灵\ncharity\tn.慈善机构;慈善\n' +
+    'render\tv.使成为;使变得;给予\ncore\tn.果核 adj.核心的\nspoil\tv.损坏;宠坏;变质\ncharitable\tadj.慈善的\n' +
+    'recently\tadv.最近,近来\nconvention\tn.习俗,惯例;大会\norganisation\tn.组织;团体,机构\nera\tn.时代;年代\n' +
+    'nuisance\tn.令人讨厌的人或事物\nmoist\tadj.潮湿的,湿润的\nfabric\tn.织物,布料;结构\naddict\tn.入迷的人,成瘾的人\n' +
+    'dining\tn.就餐,用餐\ncontroversy\tn.争论,争议\nflavour\tn.味道;特色\nincredible\tadj.难以置信的;惊人的\n' +
+    'assert\tv.断言,声称\nchip\tn.炸薯片;炸薯条;芯片\ndrought\tn.久旱;旱灾\nloan\tn.贷款;借出 v.借出\n' +
+    'contrast\tn.明显的差异 v.对比\ncredible\tadj.可信的;可接受的\nsouvenir\tn.纪念品,纪念物\ncoverage\tn.新闻报道;覆盖范围\n' +
+    'column\tn.柱,圆柱;专栏\ndrier\tn.烘干机;吹风机\ninnovation\tn.创新;改革\nextinct\tadj.灭绝的,绝种的\n' +
+    'intellectual\tn.知识分子 adj.知识的\noriginal\tadj.最初的,原始的\nsemester\tn.学期\noption\tn.选择;选项\n' +
+    'instinct\tn.本能,直觉,天性\nthrust\tv.猛推;塞;刺 n.要点\ndistinct\tadj.有区别的;明显的\nregion\tn.地区;(身体)部位\n' +
+    'intelligent\tadj.聪明的,有才智的\nupload\tv.上传,上载\nextinction\tn.灭绝\ndialect\tn.方言,土话\n' +
+    'election\tn.选举,选择权\ndragon\tn.龙\nai\tabbr.人工智能\nremarkable\tadj.明显的;非凡的\napparently\tadv.看来;显然\n' +
+    'prominent\tadj.突出的,卓越的\nmarvel\tn.奇迹 v.感到惊奇\nfabulous\tadj.极好的;难以置信的\nobviously\tadv.显然,明显地\n' +
+    'peak\tn.顶峰;尖端 v.达到高峰\nreinforce\tv.加强;给……加强力量\nemerge\tv.浮现,出现,兴起\nobedient\tadj.顺从的,服从的\n' +
+    'stroll\tn.散步,漫步,闲逛 v.散步,漫步,闲\nmarvellous\tadj.极好的;非凡的\nsubmerge\tv.淹没;掩盖;使沉浸于\n' +
+    'enforce\tv.强制;强迫;执行\neminent\tadj.明显的;杰出的\ninvade\tv.侵略,大量涌入;干扰\nproposal\tn.提议,建议;求婚\n' +
+    'absolutely\tadv.绝对地;极其\nillusion\tn.幻想;错觉\nrefine\tv.精炼,提纯;改进\nexposure\tn.揭露;暴露\n' +
+    'dispose\tv.处理;放置;安排\nopponent\tn.对手,竞争者\nimpose\tv.将……强加于\ninfinite\tadj.无穷的;极大的\n' +
+    'definite\tadj.明显的,确定的\ndefine\tv.给……下定义,解释\npose\tn.姿势 v.摆姿势\ndefinition\tn.释义;解释\n' +
+    'positive\tadj.乐观的 n.优点\nposture\tn.姿势,态度;立场\nexpenditure\tn.支出,花费\nexpend\tv.花费,消耗,支出\n' +
+    'definitely\tadv.一定,确定\nconfine\tv.限制;监禁,关押\ncompose\tv.组成,构成;作曲\nloyal\tadj.忠诚的,忠心的\n' +
+    'propose\tv.建议;计划;提出\nbreeze\tn.微风,轻风\ncoarse\tadj.粗糙的;粗鲁的\nfragment\tn.碎片;片段 v.破碎\n' +
+    'fatal\tadj.致命的;灾难性的\nsincere\tadj.真诚的,真实的\nprevious\tadj.先前的,以往的\ngenerate\tv.产生;繁殖;引起\n' +
+    'furnish\tv.配备家具,布置\ncritic\tn.批评家,评论家\nsoft\tadj.软的;温和的\nreap\tv.收割,收获\ntender\tadj.温柔的;脆弱的\n' +
+    'yield\tv.产生,出产 n.产量\ncritical\tadj.批评的;关键的\njealous\tadj.妒忌的;猜疑的\nessential\tadj.极其重要的\n' +
+    'qualify\tv.达标;(使)合格\ncrucial\tadj.至关重要的;关键的\nmall\tn.商业街,购物中心\nbacteria\tn.(pl.)细菌\n' +
+    'germ\tn.细菌,微生物,病菌\nstrategy\tn.策略;计策\naggravate\tv.加重,使恶化;激怒\ncue\tn.暗示;提示 v.暗示;提示\n' +
+    'grave\tn.墓穴,坟墓 adj.严重的\ncrystal\tn.水晶;晶体\ngrant\tn.授予物 v.授予,准予\nglobal\tadj.全世界的;整体的\n' +
+    'scandal\tn.丑行;丑闻;丑事\nluxurious\tadj.奢侈的;十分舒适的\napologise\tv.道歉,谢罪\nwool\tn.羊毛\n' +
+    'series\tn.一系列;系列节目\nensure\tv.保证,确保\nluxury\tn.奢华;奢侈品\nassure\tv.使确信,保证,确保\ngrieve\tv.悲伤;使伤心\n' +
+    'jewellery\tn.珠宝,首饰\nclue\tn.线索;提示\nrelieve\tv.减轻,缓解\ngrab\tv.抓住;夺得\nmooncake\tn.月饼\n' +
+    'mood\tn.情绪;心情;气氛\nimmigrate\tv.(从外地)移居;移民\nharmonious\tadj.和谐的\ndistress\tn.悲痛,痛苦 v.使痛苦\n' +
+    'beforehand\tadv.预先;事先\npoverty\tn.贫穷;贫困;缺乏\nverbal\tadj.非书面的;口头的\nidentical\tadj.完全同样的\n' +
+    'migrate\tv.迁徙;移居;移动\ndepress\tv.使沮丧;使萧条\nrecognition\tn.认出;承认\nimage\tn.图像;形象;印象\n' +
+    'identify\tv.认出,识别\nseminar\tn.研讨会\nobstacle\tn.障碍;干扰;阻碍\nsuspend\tv.悬挂;暂缓,推迟\nelevate\tv.提高;晋升\n' +
+    'cease\tv.(使)停止,终止\nincline\tn.斜坡 v.(使)倾斜\nmagnetic\tadj.有磁性的\nconstitute\tv.组成,构成;成立\n' +
+    'interpret\tv.解释,说明;口译\nmiracle\tn.奇迹\nfaculty\tn.全体教师;系,院\nsite\tv.使坐落在 n.位置\n' +
+    'interfere\tv.干涉;阻碍\narouse\tv.唤醒;唤起,激起\nintervention\tn.介入;干涉\ninteract\tv.相互影响,相互作用\n' +
+    'discriminate\tv.区分,辨别;歧视\ninteraction\tn.互动;相互作用;交流\nsuperstition\tn.迷信\nphase\tn.阶段;时期\n' +
+    'scale\tn.规模;等级 v.改变大小\ndump\tn.垃圾场 v.丢弃\ncoincide\tv.符合,一致;同时发生\njustify\tv.证明……是正当的\n' +
+    'pesticide\tn.杀虫剂\nenlighten\tv.启发;开导;阐明\nsuicide\tn.自杀,自杀事件\ninevitable\tadj.必然的,不可避免的\n' +
+    'location\tn.地点;位置\nitem\tn.项目;条款;一件商品\nlocate\tv.找出……的准确位置\nsample\tn.样品 v.抽样调查\n' +
+    'engage\tv.参加,从事;雇用\ngradual\tadj.逐渐的,逐步的\ncreative\tadj.创造性的\ntremendous\tadj.巨大的;精彩的\n' +
+    'massive\tadj.巨大的;大量的\nnumerous\tadj.无数的,许多的\ndiplomat\tn.外交官\nenormous\tadj.巨大的;庞大的\n' +
+    'species\tn.物种,种类\nchore\tn.日常事务\nmayor\tn.市长\nhumble\tadj.谦虚的;虚心的\nfashion\tn.时尚;流行款式\n' +
+    'stale\tadj.不新鲜的\nobserver\tn.观察者\nmultiple\tadj.数量多的\nmeantime\tn.其间;同时 adv.其间;同时\n' +
+    'conserve\tv.保存;节省 n.蜜饯\nreservoir\tn.水库,蓄水池\nadminister\tv.管理;执行\nearnest\tadj.认真的,真诚的\n' +
+    'stability\tn.稳定(性);稳固(性)\ninput\tv.输入 n.输入;投入\nfoundation\tn.基础;创建;地基\nestablish\tv.建立;创立;设立\n' +
+    'tragedy\tn.悲剧,灾难\nprofound\tadj.深刻的,深远的\ndramatic\tadj.急剧的;戏剧性的\ndrama\tn.戏剧;戏剧性事件\n' +
+    'corporate\tadj.公司的;全体的\ncooperate\tv.合作;协作\nelement\tn.要素;元素;基础\nresident\tn.居民 adj.居住的\n' +
+    'habitat\tn.栖息地\nprecisely\tadv.准确地;恰好地\nextensive\tadj.广阔的;大量的\ncontend\tv.声称,主张;竞争\n' +
+    'extend\tv.延长,延伸,伸展,扩大\nsophisticated\tadj.老练的;复杂巧妙的\nexpansion\tn.扩大,扩充;膨胀\n' +
+    'professional\tadj.专业的 n.专家\nsake\tn.缘故,理由\noccupy\tv.使用;占用;使忙于\nextent\tn.程度;面积\n' +
+    'response\tn.回答;响应,反应\noblige\tv.强迫,迫使;帮忙\nresponsible\tadj.有责任的;负责的\nrecording\tn.录音,录像;记录\n' +
+    'motivate\tv.刺激,使有动机;激励\nconfer\tv.授予;开会,协商\naccording\tadj.相符的;相应的\nundergo\tv.经历,经受\n' +
+    'motion\tn.运动,移动 v.示意\nprompt\tadj.立即的 v.促使;鼓励\ninfer\tv.推测,推论\nmotive\tn.动机\n' +
+    'emotion\tn.情感,情绪,感情\nerase\tv.清除;消除;擦掉\nrestrain\tv.制止,阻止,约束\ninquire\tv.询问,打听;查究\n' +
+    'nonsense\tn.谬论,胡说\nscarce\tadj.缺乏的;稀少的\ndisplay\tn.陈列;展览;展示 v.陈列;展览;展\nscarcely\tadv.勉强;几乎不;决不\n' +
+    'exhibit\tn.展览品 v.展览\nintensive\tadj.密集的;加强的\ncrude\tadj.天然的;粗俗的\nintense\tadj.十分强烈的\n' +
+    'aspire\tv.渴望;有志(成为)\nsolution\tn.解决办法;答案\nsignificant\tadj.有重大意义的\nassign\tv.委派,指派;分配\n' +
+    'hollow\tn.凹陷处 adj.空的\nscope\tn.范围;机会;能力\ninsight\tn.洞悉,了解;洞察力\nresolution\tn.决心;解决\n' +
+    'resolve\tv.决心;解决 n.决心\ninspiration\tn.灵感\ntackle\tv.应付;处理;解决\ncope\tv.应付,处理\nsolve\tv.解决,处理;解答\n' +
+    'chopstick\tn.筷子\ncontract\tn.合同 v.与……订立合同\nsubtract\tv.减去,扣除\nweary\tadj.疲劳的;令人厌倦的\n' +
+    'entirely\tadv.全部地;完整地\ntreaty\tn.(国家之间的)条约\nadhere\tv.黏附;遵守;坚持\ncontact\tn.联系 v.(使)接触,联系\n' +
+    'exhaust\tv.使筋疲力尽;用光,耗尽\nextract\tv.提取 n.提取物,摘录\nspontaneous\tadj.自然产生的,自发的\n' +
+    'leisure\tn.空闲,悠闲,休闲\nstuff\tn.东西,物品 v.装满\norient\tn.东方 v.确定方向\nidle\tv.虚度 adj.懒惰的\n' +
+    'profile\tn.轮廓;概述,简介\nultimately\tadv.最终;根本上\nduration\tn.持续时间;期间\nmoderate\tadj.温和的;适度的\n' +
+    'occasion\tn.时机;理由;某次\ntorture\tn.拷问,拷打;折磨 v.拷问,拷打;折\napproximate\tadj.大约的;接近的\n' +
+    'navigate\tv.航行,航空;导航\nendure\tv.忍耐;持续\nintimate\tadj.亲密的 v.透漏\ninvaluable\tadj.无价的,非常贵重的\n' +
+    'ultimate\tadj.最后的,终极的\nexaggerate\tv.夸张;夸大\nhike\tn.徒步旅行;远足 v.徒步旅行;远足\n' +
+    'estimate\tn.估计,估价 v.估计,估价\nexcursion\tn.远足,短途旅行\nclient\tn.委托人;客户\npresume\tv.假设;假定\n' +
+    'resort\tv.求助于 n.采取\npursue\tv.追求\nslope\tn.斜坡 v.倾斜\ncontest\tn.竞争;比赛 v.竞争;比赛\n' +
+    'consumption\tn.消耗,消耗量;消费\ncliff\tn.悬崖,峭壁\nfarewell\tint.再会,别了 n.告别\ncostume\tn.服装;戏服\n' +
+    'resume\tv.再继续,重新开始\nspill\tv.(使)洒出 n.泄漏(量)\ndetest\tv.厌恶,讨厌\nprotest\tn.抗议,反对 v.抗议,反对\n' +
+    'context\tn.背景;语境,上下文\ntransmit\tv.传输,播送;传播\nemit\tv.发出;放射;发表\nbreed\tv.饲养,繁殖;养育\n' +
+    'deliberate\tadj.故意的;深思熟虑的\ncouncil\tn.委员会;市政服务机构\nformal\tadj.形式上的;正式的\ncampus\tn.校园\n' +
+    'bureau\tn.局,科,处,办事处\nomit\tv.删除;忽略;不做\ntransplant\tv.移植 n.移植\nassemble\tv.聚集,集合;组装\n' +
+    'surgery\tn.外科;外科手术\ntrace\tn.踪迹 v.追溯;追踪\ntrail\tn.痕迹;踪迹;小路\nlikelihood\tn.可能,可能性\n' +
+    'grace\tn.优美,优雅\nradical\tadj.根本的;激进的\nvary\tv.改变;使多样化;不同\nremedy\tn.处理方法 v.改进\n' +
+    'shift\tv.转移;改变 n.改变\ndrift\tn.流动 v.漂流;飘\nglow\tv.发光 n.光亮;容光焕发\nvariable\tadj.变化的 n.变量\n' +
+    'radiate\tv.辐射;流露;发射\nalter\tv.改变,改动\nexternal\tadj.外部的,外在的\nmanuscript\tn.手稿,原稿\n' +
+    'obscure\tadj.模糊的;费解的\ndominate\tv.支配;控制;主导\ninternal\tadj.内部的\ndetect\tv.察觉,发觉;查出\n' +
+    'prescribe\tv.规定;开处方\ndisgust\tn.厌恶 v.使人厌恶\ndecay\tn.衰退,衰减;腐烂 v.衰退,衰减;腐\n' +
+    'interior\tn.内部;内地 adj.内部的\noffend\tv.冒犯,使不愉快\ndomestic\tadj.家庭的,本国的\nexterior\tn.外部,表面 adj.外部的\n' +
+    'endanger\tv.危害\nadoption\tn.收养;采用\ncurrent\tadj.当前的 n.(电、水)流\nbore\tv.使厌烦\n' +
+    'accurate\tadj.正确的,精确的\ntedious\tadj.单调的,乏味的\nbother\tv.烦扰 n.麻烦,烦扰\nsuburb\tn.市郊,郊区\n' +
+    'integrate\tv.(使)合并,成为一体\neconomical\tadj.经济的;实惠的\ncounty\tn.郡;县\nintegrity\tn.诚实正直;完整\n' +
+    'evolve\tv.(使)进化,(使)发展\nwrap\tv.包,裹;用……缠绕\nrural\tadj.农村的;乡村的\nconfidence\tn.信任,信心\n' +
+    'revolve\tv.旋转;环绕\nfrank\tadj.坦率的,直率的\neconomic\tadj.经济的,经济学的\ndemocratic\tadj.民主的;大众的\n' +
+    'entitle\tv.给……命名\ninvolve\tv.涉及;包含\neconomics\tn.经济学;经济情况\ndemocracy\tn.民主;民主精神\neconomy\tn.经济\n' +
+    'issue\tn.问题 v.发行,颁布\nexpel\tv.把……开除(或除名)\ndeny\tv.否认;拒绝\ncontinual\tadj.频繁的,持续不断的\n' +
+    'substance\tn.物质;实质;主旨\nenthusiasm\tn.狂热,热情\npessimistic\tadj.悲观的;悲观主义的\n' +
+    'romantic\tadj.浪漫的;浪漫主义的\nphilosophy\tn.哲学\npassion\tn.激情,热情\nneglect\tn.忽略;忽视 v.忽略;忽视\n' +
+    'geology\tn.地质学,地质\nnegative\tadj.消极的;悲观的\ncompassion\tn.同情;怜悯\nsubstantial\tadj.大量的;牢固的\n' +
+    'objective\tadj.客观的\nconfused\tadj.困惑的,迷惑的\nopportunity\tn.机会;时机\nprincipal\tn.校长 adj.最重要的\n' +
+    'continuous\tadj.连续的,持续的\ngym\tn.体育馆,健身房\ncode\tn.准则;代码;密码\nneutral\tadj.中立的 n.中立者\n' +
+    'discipline\tn.纪律;学科\nexam\tn.考试;检查,体检\npolicewoman\tn.女警察\nwriter\tn.作家;作者\nmuscle\tn.肌肉\n' +
+    'body\tn.身体,躯体;主体\nhousehold\tn.一家人,家庭\ncalorie\tn.卡路里\ndomain\tn.领域,范围;领土\n' +
+    'fund\tn.资金 v.为……提供资金\ncomic\tadj.滑稽的 n.连环画杂志\ngap\tn.缺口;间隙;分歧\nmode\tn.方式;模式;状态\n' +
+    'factor\tn.因素,要素;因数\nrating\tn.等级;收视率\nfinding\tn.调查发现\ndistribution\tn.分配,分布;经销,分销\n' +
+    'instance\tn.例子,实例\nvariation\tn.变化,变异;变奏曲\nguideline\tn.指导方针,准则;参考\ndespite\tprep.即使,尽管\n' +
+    'mission\tn.官方使命;代表团\npe\tn.体育(课)\ngene\tn.基因\nfulfil\tv.实现;履行\nmaths\tn.数学;运算,计算\n' +
+    'leadership\tn.领导;领导才能;领导层\nrealistic\tadj.现实的;能够实现的\nkeen\tadj.渴望的;热情的\noverall\tadj.全面的,总体的\n' +
+    'further\tadv.较远;进一步;此外\nmissing\tadj.找不到的;缺少的\nonline\tadj.在线的,联机的\nideal\tadj.理想的 n.理想\n' +
+    'setting\tn.背景;情节背景\nelderly\tadj.年纪较大的\nlean\tv.倾斜;倚靠 adj.瘦的\ncute\tadj.可爱的;机灵的\n' +
+    'secondary\tadj.中等教育的;次要的\npolar\tadj.极地的;相反的\nminor\tadj.较小的,次要的\nshortage\tn.不足;缺少;短缺\n' +
+    'limited\tadj.有限的;受限制的\ngoodbye\tint.再见,再会 n.再见,再会\nmount\tv.准备;逐步增加 n.山\nleap\tv.跳跃;剧增 n.跳跃;剧增\n' +
+    'sum\tn.金额;总数 v.总结\ncite\tv.列举;引用;传唤\ndo\tv.做,干;行动;进展\nbike\tn.自行车 v.骑自行车\npanel\tn.控制板,仪表盘\n' +
+    'photo\tn.照片,相片\nmobilephone\tn.移动电话,手机\nlog\tn.原木;日志 v.记录\ndisc\tn.圆盘;光碟,光盘\nblog\tn.博客 v.写博客\n' +
+    'phone\tn.电话 v.打电话\nlaptop\tn.笔记本电脑\nkit\tn.成套工具;配套元件\nfridge\tn.冰箱\ncucumber\tn.黄瓜\n' +
+    'spicy\tadj.加有香料的;辛辣的\ningredient\tn.成份;材料;要素\ntofu\tn.豆腐\nwifi\tn.无线保真\npizza\tn.比萨饼\n' +
+    'tshirt\tn.T恤衫\nicecream\tn.冰激凌\npudding\tn.甜食,甜点;布丁\npants\tn.内裤;短裤;裤子\nlunar\tadj.月球的,月亮的\n' +
+    'portrait\tn.肖像;描绘\nprotein\tn.蛋白质\noclock\tadv.(表示整点)……点钟\nbce\tn.公元前\npm\tabbr.下午,午后\n' +
+    'perspective\tn.看法,观点\neve\tn.前夕;傍晚\nsore\tadj.疼痛的;酸痛的\nce\tabbr.公元\nxray\tn.X射线,X光\n' +
+    'lifestyle\tn.生活方式\nmonthly\tadj.每月的,每月一次的\nrejuvenate\tv.使年轻;使更有活力\nwetland\tn.湿地;沼泽地\n' +
+    'patriotism\tn.爱国主义\ncollaborate\tv.合作;协作\nalert\tadj.警觉的 v.使警觉\nteenage\tadj.青少年的;十几岁的\n' +
+    'ms\tabbr.女士\ncraft\tn.工艺;技巧;飞行器\ncharm\tn.魅力 v.吸引;迷住\ncurve\tn.曲线;弯曲 v.(使)变弯\ngender\tn.性别\n' +
+    'grandparent\tn.(外)祖父;(外)祖母\nbully\tv.霸凌 n.仗势欺人者\nmr\tabbr.先生\nmembership\tn.会员资格;会员\n' +
+    'mrs\tabbr.太太,夫人\ndedicate\tv.奉献;献给\npersonality\tn.性格,个性;气质\ngrandfather\tn.(外)祖父,爷爷,姥爷\n' +
+    'confucianism\tn.儒学,孔子学说\nconfucius\tn.孔子\ngrandmother\tn.(外)祖母,奶奶,姥姥\n' +
+    'endangered\tadj.濒临灭绝的;濒危的\ndrone\tn.嗡嗡声;无人机\nempathy\tn.共鸣;同情\neliminate\tv.排除;(比赛中)淘汰\n' +
+    'madam\tn.夫人,女士\nbias\tn.偏见;偏爱 v.使有偏见\nlegend\tn.传说;传奇人物\nexceed\tv.超过,胜过\nhousing\tn.住房;提供住房\n' +
+    'migration\tn.迁移;移居;迁徙\ntone\tn.语气;音质,音色\nfable\tn.寓言(故事)\nfaint\tadj.微弱的;昏厥的\n' +
+    'ethnic\tadj.种族的;民族的\ngreenhouse\tn.温室,暖房\nethical\tadj.道德的;伦理的\nhistoric\tadj.历史上著名的\n' +
+    'fireman\tn.消防队员\nliterally\tadv.字面上;真正地\nfascinating\tadj.极有吸引力的;迷人的\npoetry\tn.诗歌\n' +
+    'caf\tn.咖啡馆;便利商店\ncalligraphy\tn.书法\nhorror\tn.震惊;恐惧\nlower\tv.降低 adj.下面的\n' +
+    'transfer\tv.转移;换乘 n.转移;换乘\ntransition\tn.过渡;转变\noven\tn.烤箱;烤炉\nempress\tn.女皇;皇后\n' +
+    'olympic\tadj.奥林匹克运动会的\nprince\tn.王子;王孙;亲王\nsubway\tn.地铁;地下人行道\nspacecraft\tn.宇宙飞船\n' +
+    'tunnel\tn.地道;隧道\nlost\tadj.迷路的;丢失的\npingpong\tn.乒乓球运动\nprincess\tn.公主;王妃\nsaving\tn.节省物,节省;存款\n' +
+    'gramme\tn.克\nmutual\tadj.相互的;共同的\ngiant\tadj.巨大的 n.巨人\nrhythm\tn.节奏;韵律;规律\nrival\tn.竞争对手\n' +
+    'modify\tv.调整;修改\nmodernisation\tn.现代化\nkungfu\tn.功夫\nsupplement\tn.增补(物);补充(物) v.增补;补充\n' +
+    'millimetre\tn.毫米\ndolphin\tn.海豚\nbug\tn.虫子;小病;故障\noverseas\tadj.外国的 adv.在国外\npenguin\tn.企鹅\n' +
+    'livestock\tn.牲畜;家畜\nuk\tabbr.英国,联合王国\nmoreover\tadv.此外,而且\nframe\tn.框架;结构\n' +
+    'elsewhere\tadv.在(或去、到)别处\nhence\tadv.因此,由此\nmagnificent\tadj.宏伟的;壮丽的\ntowards\tprep.向,朝,对着\n' +
+    'fertile\tadj.肥沃的;能结果的\nbin\tn.垃圾桶;垃圾箱\nequator\tn.赤道\nfurthermore\tadv.此外;而且\n' +
+    'finally\tadv.终于;最后;彻底地\nhybrid\tn.杂种动物;杂交植物\nmostly\tadv.主要地,通常\nmarine\tadj.海洋的;海产的\n' +
+    'inner\tadj.里面的,内部的\npagoda\tn.塔;佛塔\nmystery\tn.神秘;谜\nsomewhat\tadv.有点,稍微\nmetaphor\tn.暗喻;隐喻\n' +
+    'myth\tn.神话;虚构的东西\nslightly\tadv.略微,稍微\nsomehow\tadv.以某种方式\ntropical\tadj.(来自)热带的\n' +
+    'oughtto\tmodal v.应该,应当\nshell\tn.壳;炮弹\ncould\tmodal v.能,可以;可能\nus\tpron.(宾格)我们\n' +
+    'must\tmodal v.必须;一定\ncan\tmodal v.能,会;可以\n';
+
+  // 词条表每行是「单词 \t 中文释义」，解析成词数组 + 释义表（两张表去重合并）
   var VOCAB = [];
   var GLOSS = Object.create(null);
-  (function parseDict() {
-    var rows = DICT_SRC.split('\n');
+  var seenWord = Object.create(null);
+  function parseTable(src) {
+    if (!src) return;
+    var rows = src.split('\n');
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       if (!r) continue;
       var t = r.indexOf('\t');
       var w = t < 0 ? r : r.slice(0, t);
-      if (!w) continue;
+      if (!w || seenWord[w]) continue;
+      seenWord[w] = 1;
       VOCAB.push(w);
       if (t >= 0) GLOSS[w] = r.slice(t + 1);
     }
-  })();
+  }
+  parseTable(DICT_SRC);
+  parseTable(BOOK_SRC);
 
   var WORDS = VOCAB;                       // 字母渐进模式的 bigram 语料同源
   var ALL_LETTERS = 'abcdefghijklmnopqrstuvwxyz';
+
+  // 课程词表（按 Lesson 分组）。由 dev/build-lessons.js 从 dev/lessons.json 注入，
+  // 留空时下拉列表只有「全部词表」和「字母渐进」两项。
+  var LESSONS = [
+    { name: 'U1 L1', words: ['survival', 'spin', 'respect', 'respective', 'revive', 'exactly', 'advantage', 'weed', 'virtual', 'adventure', 'release', 'advise', 'spectacular', 'prosperity', 'actress', 'react', 'publish', 'evil', 'advertise', 'spectator', 'actor', 'active', 'doubt', 'act', 'actual', 'prospect', 'live', 'expect', 'adore', 'inspection', 'sweep', 'action', 'wipe', 'living', 'survive', 'brush', 'venture', 'advertisement', 'surf', 'bush', 'equal', 'alive', 'exact', 'advance', 'speculate', 'reaction', 'punish', 'certain', 'weep', 'lively', 'audience', 'addition', 'disadvantage', 'aspect', 'aloud', 'adequate', 'surface', 'suspicious', 'actually', 'adorable', 'spy', 'expectation', 'suspect', 'jungle', 'check', 'admire', 'equality', 'loudspeaker', 'add', 'advice', 'sceptical', 'inspect', 'certainly', 'vivid', 'activity'] },
+    { name: 'U1 L2', words: ['gift', 'plug', 'standard', 'absence', 'disability', 'spray', 'capable', 'symphony', 'stain', 'envelope', 'sympathy', 'normal', 'wag', 'behave', 'remain', 'symbol', 'abnormal', 'captain', 'represent', 'prey', 'capsule', 'present', 'female', 'able', 'fix', 'guy', 'capital', 'abuse', 'gifted', 'disable', 'attain', 'exchange', 'widespread', 'caption', 'follow', 'scare', 'capture', 'swap', 'sustainability', 'switch', 'obtain', 'sustain', 'maintain', 'swear', 'escape', 'style', 'representative', 'absent', 'typical', 'presentation', 'mercy', 'symptom', 'change', 'abolish', 'stretch', 'male', 'contain', 'ability', 'wing', 'spread', 'main', 'type', 'pray', 'fellow', 'capacity', 'abortion', 'abandon', 'swing', 'behalf', 'disabled', 'swell'] },
+    { name: 'U1 L3', words: ['fight', 'cast', 'broadcast', 'broad', 'conflict', 'enable', 'throat', 'fasten', 'deep', 'accomplish', 'castle', 'wide', 'succeed', 'cheat', 'loose', 'curtain', 'threaten', 'button', 'ridiculous', 'success', 'aboard', 'deceive', 'threat', 'board', 'receipt', 'weigh', 'exceptional', 'approach', 'height', 'receive', 'deeply', 'enlarge', 'concept', 'depth', 'frighten', 'frightened', 'accessible', 'palace', 'excess', 'strengthen', 'strength', 'achievement', 'successful', 'highlight', 'loss', 'perceive', 'horrible', 'cupboard', 'firefighter', 'abroad', 'blackboard', 'wild', 'receptionist', 'accept', 'tighten', 'terrify', 'absorb', 'terrible', 'weight', 'assess', 'tight', 'betray', 'receiver', 'access', 'absurd', 'except', 'enclose', 'collar', 'achieve', 'length', 'terror', 'burden'] },
+    { name: 'U1 L4', words: ['natural', 'stripe', 'ancestor', 'mechanic', 'counter', 'procedure', 'infection', 'odd', 'chain', 'account', 'factory', 'strap', 'prior', 'altogether', 'usual', 'monument', 'acknowledge', 'effect', 'rope', 'usually', 'encounter', 'effort', 'impact', 'facilitate', 'perfect', 'affect', 'lavatory', 'facility', 'together', 'influential', 'process', 'library', 'toilet', 'memorial', 'machine', 'accountant', 'priority', 'calculator', 'proceed', 'processor', 'gather', 'progress', 'gallery', 'ancient', 'influence', 'discount', 'descend', 'common', 'remind', 'countdown', 'scenery', 'string', 'trouble', 'trap', 'infect', 'descendant', 'nature', 'affection', 'precede', 'strange', 'accumulate', 'landscape', 'knowledge', 'nursery', 'calendar', 'librarian', 'recall', 'march', 'procession', 'manufacture', 'countless', 'strip', 'flu', 'ambitious', 'calculate', 'troop', 'acquaint', 'dormitory', 'aggressive', 'scene', 'ambition', 'memory', 'lab', 'belt', 'territory', 'count', 'ascend', 'efficient', 'chair', 'stranger', 'familiar'] },
+    { name: 'U2 L1', words: ['urge', 'butcher', 'preview', 'sew', 'shake', 'telegram', 'magazine', 'list', 'liquid', 'wave', 'tailor', 'supervise', 'retail', 'seed', 'telephone', 'agency', 'grocery', 'lid', 'reporter', 'valid', 'television', 'interview', 'shock', 'weave', 'visual', 'visible', 'view', 'tide', 'clerk', 'choke', 'grocer', 'journal', 'microphone', 'route', 'agent', 'microscope', 'routine', 'viewpoint', 'fluid', 'revise', 'tobacco', 'agenda', 'device', 'shopkeeper', 'pulse', 'journalist', 'solid', 'schedule', 'review', 'detail', 'urgent', 'postpone', 'vain', 'vision', 'tail', 'visit', 'sow', 'cigarette', 'alcohol', 'visualise', 'wholesale', 'wine', 'devise', 'nod', 'telescope', 'viewer', 'visitor'] },
+    { name: 'U2 L2', words: ['jazz', 'departure', 'inn', 'database', 'part', 'appeal', 'orchestra', 'astonish', 'fade', 'spear', 'chest', 'anecdote', 'sprout', 'participate', 'entertain', 'appearance', 'entertainment', 'alarm', 'partner', 'inventor', 'portion', 'heaven', 'angry', 'fear', 'disappear', 'invent', 'prairie', 'storage', 'fierce', 'humourous', 'wrestle', 'recreation', 'anticipate', 'apart', 'vanish', 'invention', 'proportion', 'anxious', 'angle', 'triangle', 'rest', 'lounge', 'plain', 'amuse', 'humour', 'depart', 'arrest', 'survey', 'warning', 'warn', 'shrink', 'coworker', 'flat', 'investigate', 'analyse', 'panic', 'restaurant', 'amazing', 'statistic', 'department', 'amaze', 'anxiety', 'analysis', 'jeans', 'breast', 'caution', 'parttime', 'appear', 'invest', 'data', 'double', 'convey', 'restore', 'anger', 'store', 'antique', 'unrest', 'apartment'] },
+    { name: 'U2 L3', words: ['edition', 'occur', 'arrow', 'apply', 'worth', 'smash', 'bow', 'finance', 'proof', 'resource', 'prove', 'application', 'collide', 'attempt', 'bowl', 'rush', 'quote', 'incident', 'applicant', 'agree', 'accommodation', 'ashamed', 'version', 'construction', 'brick', 'skyscraper', 'financial', 'artist', 'date', 'accident', 'possess', 'crisis', 'cash', 'waterproof', 'construct', 'deprive', 'disappoint', 'source', 'arrive', 'bowling', 'worthless', 'dash', 'crash', 'asset', 'editor', 'derive', 'episode', 'disapprove', 'proper', 'temptation', 'settle', 'accommodate', 'ash', 'chapter', 'art', 'shame', 'enhance', 'property', 'article', 'worthwhile', 'estate', 'structure', 'sword', 'appropriate', 'appointment', 'plot', 'wealth', 'improve', 'appoint', 'clash', 'building', 'architect', 'update', 'worthy', 'architecture', 'approve', 'disappointed', 'possession'] },
+    { name: 'U2 L4', words: ['association', 'botanical', 'strawberry', 'associate', 'boycott', 'bind', 'tie', 'refresh', 'flesh', 'spaceship', 'botany', 'consistent', 'combine', 'oxygen', 'assist', 'bend', 'sociable', 'military', 'eggplant', 'bamboo', 'nuclear', 'consist', 'electrical', 'connect', 'cell', 'launch', 'social', 'divide', 'solar', 'rocket', 'fresh', 'pineapple', 'bond', 'astronomer', 'mend', 'pilot', 'isolate', 'undivided', 'link', 'resist', 'plant', 'atom', 'individual', 'plate', 'pine', 'astronaut', 'rigid', 'attack', 'stubborn', 'division', 'auxiliary', 'lonely', 'juice', 'mixture', 'straw', 'assistant', 'melon', 'planet', 'weapon', 'resistance', 'insist', 'aid', 'pond', 'society', 'alone', 'combination', 'armchair', 'arm', 'tank', 'army', 'watermelon', 'satellite', 'electricity', 'socialism', 'persist'] },
+    { name: 'U3 L1', words: ['author', 'basis', 'avenue', 'tap', 'false', 'balance', 'venue', 'unconscious', 'base', 'relevant', 'logical', 'bar', 'bandage', 'implicit', 'regular', 'barely', 'bat', 'band', 'awake', 'barber', 'embarrassed', 'basic', 'hint', 'genius', 'basin', 'conscious', 'relation', 'revenue', 'shave', 'reliable', 'relationship', 'ballet', 'alley', 'balloon', 'genuine', 'regulate', 'frequent', 'asleep', 'badly', 'awkward', 'parallel', 'conscience', 'bathroom', 'block', 'bark', 'shower', 'embarrass', 'imply', 'reveal', 'fence', 'paradise', 'hibernate', 'parade', 'naked', 'demonstrate', 'badminton', 'barrier', 'nephew', 'bare', 'relate', 'authority', 'relative', 'indicate', 'frequently', 'bath', 'aware', 'bet', 'frequency', 'barrel', 'niece', 'relay', 'awful', 'illustrate', 'rely', 'trade', 'authentic', 'baseball', 'embassy', 'bargain', 'liable', 'explicit'] },
+    { name: 'U3 L2', words: ['declare', 'channel', 'beach', 'fortunate', 'initial', 'privilege', 'battery', 'hit', 'attitude', 'honour', 'bench', 'brand', 'imitate', 'heritage', 'initiate', 'seashell', 'argue', 'consider', 'exclaim', 'claim', 'peach', 'inherit', 'alphabet', 'altitude', 'argument', 'canal', 'negotiate', 'fortunately', 'coast', 'candidate', 'fate', 'dispute', 'seaman', 'simulate', 'valley', 'stimulate', 'reclaim', 'unfortunate', 'shore', 'considerable', 'beat', 'label', 'quarrel', 'spell', 'pronunciation', 'compensate', 'seaweed', 'considerate', 'nevertheless', 'initiative', 'zip', 'seal', 'debate', 'pattern', 'hesitate', 'point', 'beast', 'seagull', 'pronounce', 'reputation', 'fortune', 'proclaim', 'announce', 'battle', 'bay', 'vague', 'seaside', 'balcony'] },
+    { name: 'U3 L3', words: ['explore', 'lamb', 'vacant', 'gloomy', 'tame', 'artificial', 'nut', 'elastic', 'lame', 'curse', 'explode', 'excuse', 'melt', 'profit', 'joke', 'reflect', 'superior', 'supermarket', 'bomb', 'boat', 'benefit', 'blanket', 'vessel', 'forgive', 'beneath', 'super', 'boom', 'blast', 'beam', 'pea', 'accuse', 'boost', 'vacuum', 'anchor', 'blame', 'belly', 'bell', 'lantern', 'consult', 'scold', 'supreme', 'peasant', 'deaf', 'blood', 'dumb', 'superb', 'volume', 'boast', 'lamp', 'sufficient', 'flexible', 'beyond', 'tease', 'bleed', 'blank', 'belong', 'burst', 'exploit', 'zoom', 'consultant', 'insult', 'bean', 'blind', 'wooden', 'superficial', 'numb'] },
+    { name: 'U3 L4', words: ['wax', 'endless', 'yummy', 'career', 'bound', 'frontier', 'ankle', 'appetite', 'bunch', 'breathe', 'fist', 'aim', 'break', 'breathless', 'goal', 'scar', 'cab', 'carrier', 'cargo', 'brake', 'boot', 'cartoon', 'carriage', 'sparrow', 'catalogue', 'cattle', 'breakthrough', 'cafeteria', 'kettle', 'scarf', 'dish', 'bottom', 'bounce', 'carpenter', 'target', 'snack', 'delicious', 'carbon', 'edge', 'destination', 'canteen', 'ending', 'twist', 'catastrophe', 'bucket', 'budget', 'candle', 'joint', 'finger', 'wrist', 'border', 'recipe', 'category', 'sneaker', 'camel', 'feast', 'garlic', 'menu', 'fingernail', 'noodle', 'buffet', 'booth', 'parrot', 'onion', 'boundary', 'cage', 'cater', 'cabbage', 'breath', 'needle', 'carrot', 'camera', 'chess', 'carpet'] },
+    { name: 'U4 L1', words: ['climate', 'celebrate', 'circulate', 'circumstance', 'clarify', 'ticket', 'exciting', 'excite', 'surround', 'bishop', 'class', 'licence', 'classify', 'emphasis', 'excited', 'feather', 'festival', 'cheek', 'motorcycle', 'congratulate', 'chat', 'certificate', 'cheer', 'celebrity', 'chimney', 'motto', 'cycle', 'feature', 'joy', 'spark', 'character', 'centre', 'characteristic', 'merry', 'surrounding', 'file', 'clear', 'emphasise', 'concentrate', 'circuit', 'parking', 'environment', 'classical', 'classic', 'bless', 'ambiguous', 'ceremony', 'recycle', 'roast', 'thrill', 'civilisation', 'circus', 'document', 'chart', 'citizen', 'park', 'civil', 'focus', 'clean', 'circle', 'congratulation', 'church', 'leather', 'atmosphere', 'register', 'toast', 'helmet', 'figure', 'central'] },
+    { name: 'U4 L2', words: ['comfortable', 'pale', 'outcome', 'painful', 'simplify', 'communication', 'overcome', 'command', 'community', 'dive', 'disaster', 'cosy', 'include', 'comb', 'compromise', 'comment', 'ski', 'comprehension', 'comparison', 'drown', 'complain', 'compete', 'collapse', 'compass', 'conclusion', 'grey', 'come', 'despair', 'comprise', 'commercial', 'uncomfortable', 'communicate', 'income', 'commerce', 'misery', 'complex', 'clone', 'promise', 'stomachache', 'complicated', 'skateboard', 'gain', 'copy', 'skate', 'condemn', 'headache', 'exclude', 'recommend', 'accompany', 'simple', 'comprehensive', 'sink', 'print', 'compare', 'desperate', 'conclude', 'relax', 'summary', 'click', 'company', 'comfort', 'ache', 'lick', 'pain', 'comparative', 'competition', 'toothache', 'cough'] },
+    { name: 'U4 L3', words: ['decorate', 'cookie', 'biscuit', 'recent', 'corrupt', 'host', 'ready', 'convenience', 'organ', 'cancel', 'hostess', 'contribution', 'dam', 'deliver', 'decent', 'consequence', 'centimetre', 'dust', 'knee', 'clinic', 'subsequent', 'earthquake', 'bake', 'percentage', 'tradition', 'donate', 'soil', 'kneel', 'delicate', 'erupt', 'picnic', 'organic', 'ghost', 'fry', 'charity', 'century', 'render', 'hook', 'pie', 'distribute', 'delete', 'convince', 'abrupt', 'traditional', 'core', 'spoil', 'damp', 'decade', 'stove', 'consensus', 'fibre', 'lung', 'contribute', 'interrupt', 'barbecue', 'indeed', 'clay', 'chew', 'nutrition', 'percent', 'wet', 'soul', 'bakery', 'charitable', 'function', 'dusty', 'recently', 'mud', 'convention', 'organisation', 'cent', 'organise', 'convenient', 'cook', 'devote', 'deed', 'era', 'disturb', 'accent', 'boil', 'nuisance', 'earth', 'conventional', 'moist', 'fabric'] },
+    { name: 'U4 L4', words: ['powder', 'soup', 'addict', 'thirsty', 'dining', 'pour', 'conversation', 'discovery', 'contradictory', 'dictation', 'hide', 'contrary', 'hurricane', 'power', 'dioxide', 'controversy', 'hunt', 'flavour', 'dignity', 'incredible', 'soap', 'diary', 'assert', 'jar', 'seek', 'pork', 'sand', 'jaw', 'annual', 'cover', 'dine', 'chip', 'steak', 'laundry', 'drought', 'jam', 'predict', 'contradict', 'volcano', 'anniversary', 'loan', 'hunger', 'universe', 'contrast', 'mushroom', 'mention', 'dip', 'dig', 'thunder', 'recover', 'flood', 'cheese', 'dimension', 'dictionary', 'credible', 'mutton', 'discover', 'credit', 'insert', 'debt', 'diverse', 'storm', 'souvenir', 'desert', 'sacred', 'coverage', 'typhoon', 'dry', 'fetch', 'dilemma', 'drink', 'diet', 'dessert', 'drunk', 'starve', 'beef', 'column', 'hungry', 'drier'] },
+    { name: 'U5 L1', words: ['collect', 'innovation', 'extinct', 'drawback', 'speech', 'term', 'intellectual', 'original', 'downstairs', 'semester', 'terminal', 'dusk', 'lecture', 'distinguish', 'separation', 'area', 'option', 'instinct', 'select', 'origin', 'fault', 'district', 'choice', 'vote', 'equipment', 'drawer', 'drag', 'lack', 'instrument', 'thrust', 'separate', 'error', 'compulsory', 'director', 'directory', 'distinct', 'region', 'choose', 'download', 'intelligent', 'yard', 'elect', 'trust', 'section', 'dawn', 'guidance', 'upper', 'shortcoming', 'upset', 'load', 'upload', 'extinction', 'dialect', 'weakness', 'election', 'address', 'dragon', 'withdraw', 'shortly', 'instruct', 'shuttle', 'direction', 'equip', 'ai', 'collection', 'zone', 'conduct', 'direct', 'draw', 'conductor', 'instruction', 'guide', 'weak'] },
+    { name: 'U5 L2', words: ['tablet', 'merchant', 'examine', 'top', 'remarkable', 'force', 'remark', 'apparently', 'score', 'energy', 'emergency', 'tip', 'bright', 'dull', 'drug', 'prominent', 'pill', 'obvious', 'marvel', 'medical', 'fabulous', 'obviously', 'fuel', 'evidence', 'peak', 'funeral', 'drum', 'grand', 'workforce', 'excellent', 'reinforce', 'event', 'medicine', 'extra', 'evident', 'fair', 'mark', 'emerge', 'extraordinary', 'obedient', 'business', 'brilliant', 'affair', 'eventually', 'wonder', 'wonderful', 'ceiling', 'disobey', 'stroll', 'dynamic', 'splendid', 'fairly', 'apparent', 'stout', 'energetic', 'marvellous', 'glory', 'awesome', 'submerge', 'ambulance', 'wander', 'enforce', 'eminent', 'doll', 'invade', 'outstanding'] },
+    { name: 'U5 L3', words: ['truly', 'proposal', 'emperor', 'cheap', 'fancy', 'tongue', 'fan', 'fantasy', 'queen', 'absolutely', 'tax', 'illusion', 'thorough', 'reality', 'refine', 'fantastic', 'purpose', 'exposure', 'dispose', 'opponent', 'suppose', 'truth', 'absolute', 'expensive', 'expose', 'impose', 'queue', 'holy', 'faith', 'infinite', 'extreme', 'realise', 'definite', 'position', 'eagle', 'extremely', 'expense', 'define', 'eager', 'component', 'pose', 'oppose', 'definition', 'deposit', 'dynasty', 'noble', 'positive', 'posture', 'expenditure', 'expend', 'complete', 'quit', 'enemy', 'hope', 'empire', 'tune', 'opposite', 'composition', 'definitely', 'confine', 'compose', 'royal', 'merely', 'cost', 'loyal', 'propose', 'fine'] },
+    { name: 'U5 L4', words: ['fog', 'poison', 'smooth', 'breeze', 'background', 'gale', 'hire', 'forward', 'silly', 'total', 'ahead', 'vital', 'coarse', 'fragment', 'shot', 'latter', 'whisper', 'fortnight', 'talent', 'whistle', 'perfume', 'foggy', 'fluency', 'flow', 'fire', 'howl', 'employ', 'tough', 'persuade', 'afterward', 'squeeze', 'former', 'otherwise', 'wise', 'later', 'stupid', 'blow', 'backward', 'fatal', 'forecast', 'freeze', 'shoot', 'sincere', 'forehead', 'digital', 'fragile', 'fragrant', 'silence', 'latest', 'course', 'lately', 'upward', 'foresee', 'foolish', 'wisdom', 'fundamental', 'smart', 'fluent', 'rough', 'previous', 'silent', 'flame', 'mental', 'frost', 'flee', 'framework', 'flag', 'brain'] },
+    { name: 'U6 L1', words: ['grain', 'crop', 'criterion', 'ripe', 'generate', 'furnish', 'harvest', 'sweet', 'sour', 'critic', 'soft', 'sugar', 'orbit', 'bitter', 'violate', 'mine', 'virtue', 'reap', 'painting', 'maid', 'industry', 'furniture', 'tender', 'product', 'violence', 'primitive', 'video', 'sacrifice', 'yield', 'flour', 'victim', 'salt', 'field', 'critical', 'salty', 'produce', 'victory', 'quantity', 'general', 'mild', 'jealous', 'heap', 'coral', 'sweat', 'essential', 'generation', 'generous', 'mineral', 'savage', 'qualify', 'gentle', 'qualification', 'crucial', 'violent', 'polite', 'mall', 'primary', 'sweater', 'envy', 'hall', 'virus', 'via', 'honey', 'bite', 'wheat', 'bit', 'goose', 'bacteria', 'coal', 'production', 'goods', 'paint', 'germ', 'fur', 'strategy'] },
+    { name: 'U6 L2', words: ['aggravate', 'cue', 'grave', 'gesture', 'crystal', 'insurance', 'grant', 'jewel', 'global', 'scandal', 'salute', 'stare', 'scan', 'greedy', 'severe', 'diamond', 'hug', 'overlook', 'luxurious', 'bury', 'clumsy', 'globe', 'apologise', 'wool', 'luggage', 'concern', 'guard', 'steel', 'greet', 'range', 'arrangement', 'gravity', 'regardless', 'sob', 'sorrow', 'cancer', 'precious', 'silver', 'series', 'ensure', 'iron', 'silk', 'grateful', 'luxury', 'acute', 'assure', 'guarantee', 'tomb', 'glue', 'beg', 'golden', 'baggage', 'regret', 'grieve', 'jewellery', 'glance', 'clue', 'relieve', 'nylon', 'grab', 'glare', 'serious', 'appreciate', 'relief', 'belief', 'brief', 'regard', 'arrange', 'price', 'insure', 'gruel', 'mourn'] },
+    { name: 'U6 L3', words: ['hobby', 'aeroplane', 'lazy', 'mop', 'handkerchief', 'hammer', 'moral', 'hand', 'spoken', 'mooncake', 'recognise', 'harbour', 'stress', 'favour', 'impression', 'airline', 'mood', 'shelter', 'passage', 'immigrate', 'jet', 'support', 'harmonious', 'nest', 'express', 'handful', 'press', 'hate', 'distress', 'visa', 'immediately', 'import', 'shade', 'aircraft', 'beforehand', 'porter', 'poverty', 'mature', 'impress', 'verbal', 'chief', 'identical', 'passport', 'helicopter', 'immediate', 'oral', 'favourite', 'chef', 'migrate', 'harm', 'identity', 'hardworking', 'shabby', 'depress', 'handle', 'portable', 'handy', 'airport', 'export', 'handwriting', 'harmful', 'recognition', 'pressure', 'image', 'harmony', 'dentist', 'calm', 'imagine', 'medium', 'identify', 'hardship'] },
+    { name: 'U6 L4', words: ['academic', 'seminar', 'scholarship', 'obstacle', 'situation', 'increase', 'lift', 'mirror', 'substitute', 'international', 'magic', 'kindergarten', 'institution', 'innocent', 'suspend', 'purple', 'elevate', 'curriculum', 'cease', 'pause', 'raise', 'goodness', 'incline', 'kind', 'magnetic', 'scholar', 'decrease', 'internet', 'constitute', 'decline', 'pure', 'reduce', 'interval', 'condition', 'interpret', 'discrimination', 'miracle', 'drop', 'faculty', 'arise', 'site', 'independent', 'witness', 'hang', 'religion', 'murder', 'interfere', 'rise', 'academy', 'kite', 'network', 'website', 'arouse', 'selfish', 'intervention', 'interact', 'constitution', 'discriminate', 'depend', 'ladder', 'guilty', 'institute', 'sentence', 'crime', 'interaction', 'superstition'] },
+    { name: 'U7 L1', words: ['phase', 'charge', 'mouse', 'dumpling', 'scale', 'lightning', 'shark', 'leak', 'illegal', 'kangaroo', 'dump', 'mosquito', 'literature', 'colleague', 'coincide', 'tortoise', 'legal', 'literary', 'irrigate', 'pioneer', 'flash', 'lead', 'sunlight', 'zebra', 'junk', 'justify', 'local', 'pesticide', 'league', 'enlighten', 'adjust', 'leader', 'judgement', 'rank', 'insect', 'slight', 'delight', 'worm', 'court', 'suicide', 'avoid', 'inevitable', 'whale', 'trial', 'daylight', 'location', 'challenge', 'level', 'phrase', 'ox', 'struggle', 'flight', 'garbage', 'justice', 'allocate', 'litter', 'judge', 'light', 'dinosaur', 'rubbish', 'item', 'locust', 'giraffe', 'locate'] },
+    { name: 'U7 L2', words: ['sample', 'gradually', 'creature', 'divorce', 'being', 'engage', 'married', 'youth', 'wedding', 'master', 'mask', 'adult', 'mass', 'gradual', 'crowd', 'screen', 'creative', 'ample', 'couple', 'maple', 'abundant', 'pregnant', 'vast', 'tremendous', 'chaos', 'massive', 'numerous', 'single', 'diplomat', 'enormous', 'junior', 'childhood', 'monitor', 'concrete', 'mankind', 'bachelor', 'adolescent', 'bride', 'create', 'dozen', 'species', 'diploma', 'glove', 'adolescence', 'teenager', 'chore', 'degree', 'folk', 'senior', 'unique', 'human', 'bridegroom', 'graduate', 'mess', 'marriage'] },
+    { name: 'U7 L3', words: ['major', 'millionaire', 'fiction', 'serve', 'mayor', 'tale', 'modest', 'multiply', 'maximum', 'humble', 'fashion', 'novel', 'reserve', 'scissors', 'stale', 'majority', 'poem', 'modern', 'minus', 'premier', 'observer', 'multiple', 'essay', 'poet', 'deserve', 'plus', 'meaning', 'meantime', 'conserve', 'minority', 'surplus', 'conservation', 'billion', 'servant', 'reservoir', 'administer', 'novelist', 'ministry', 'meanwhile', 'leftover', 'model', 'mean', 'means', 'observe', 'minister', 'minimum', 'preserve', 'friction', 'earnest', 'spare', 'service', 'administration', 'tiny'] },
+    { name: 'U7 L4', words: ['postman', 'fountain', 'stability', 'teamwork', 'outdoors', 'garage', 'output', 'opera', 'manager', 'input', 'package', 'foundation', 'dialogue', 'mad', 'stable', 'packet', 'postcard', 'pack', 'cottage', 'establish', 'tragedy', 'peace', 'corporation', 'damage', 'policy', 'outgoing', 'wound', 'salary', 'pacific', 'profound', 'stage', 'peaceful', 'parcel', 'operation', 'comedy', 'postage', 'mountain', 'manage', 'found', 'outer', 'dramatic', 'operate', 'gas', 'destroy', 'fee', 'steady', 'dial', 'ruin', 'drama', 'average', 'crazy', 'govern', 'corporate', 'pay', 'wage', 'petrol', 'pole', 'bill', 'amount', 'cooperate', 'operator', 'poster'] },
+    { name: 'U8 L1', words: ['enterprise', 'element', 'resident', 'permanent', 'attention', 'habitat', 'precisely', 'grass', 'occupation', 'tend', 'extensive', 'intend', 'contend', 'extend', 'seize', 'tendency', 'amateur', 'precise', 'sophisticated', 'reasonable', 'entrance', 'expansion', 'president', 'professional', 'entry', 'attend', 'sake', 'expert', 'expand', 'tutor', 'cause', 'prejudice', 'trend', 'intention', 'occupy', 'profession', 'grasp', 'pretend', 'extent', 'extension', 'professor'] },
+    { name: 'U8 L2', words: ['shoulder', 'response', 'oblige', 'movement', 'responsible', 'record', 'recording', 'difference', 'remote', 'mobile', 'promote', 'cordless', 'motivate', 'confer', 'wire', 'according', 'undergo', 'preference', 'motion', 'conference', 'prompt', 'responsibility', 'share', 'album', 'provide', 'referee', 'offer', 'infer', 'replace', 'different', 'correspond', 'prefer', 'motive', 'differ', 'suffer', 'supply', 'move', 'emotion', 'respond', 'reply', 'refer', 'remove', 'reference'] },
+    { name: 'U8 L3', words: ['rot', 'erase', 'pride', 'rude', 'restrain', 'inquire', 'cream', 'sensitive', 'eraser', 'roll', 'praise', 'sense', 'rare', 'request', 'steam', 'require', 'exhibition', 'tense', 'restrict', 'nervous', 'stream', 'butterfly', 'medal', 'scream', 'proud', 'metal', 'nonsense', 'rubber', 'scarce', 'display', 'cruel', 'butter', 'applaud', 'clap', 'award', 'tension', 'reward', 'acquire', 'demand', 'plastic', 'prevent', 'rock', 'roller', 'scarcely', 'research', 'rid', 'prohibit', 'raw', 'exhibit', 'intensive', 'crude', 'allergic', 'prize', 'intense', 'root'] },
+    { name: 'U8 L4', words: ['carve', 'encourage', 'sigh', 'aspire', 'solution', 'cave', 'brave', 'shape', 'spirit', 'specific', 'significant', 'swallow', 'assign', 'shadow', 'especially', 'courage', 'narrow', 'signature', 'eyesight', 'particular', 'sightseeing', 'determine', 'pillow', 'design', 'discourage', 'specialist', 'hollow', 'scope', 'insight', 'sign', 'resolution', 'shelf', 'resolve', 'shallow', 'important', 'significance', 'signal', 'inspiration', 'resign', 'inspire', 'sculpture', 'sight', 'tackle', 'sharp', 'cope', 'solve', 'special', 'sheet'] },
+    { name: 'U9 L1', words: ['chopstick', 'abstract', 'suite', 'contract', 'subtract', 'suit', 'sponsor', 'weary', 'material', 'rob', 'case', 'entirely', 'tractor', 'treaty', 'stick', 'adhere', 'temporary', 'spot', 'attract', 'easily', 'thief', 'garment', 'contact', 'attach', 'staff', 'pot', 'suitable', 'ease', 'retire', 'exhaust', 'fit', 'potential', 'extract', 'attractive', 'contemporary', 'spontaneous', 'suitcase', 'leisure', 'stuff', 'technical', 'tired', 'steal', 'entire', 'technology', 'robot', 'advocate', 'strike', 'burglar', 'knock', 'orient', 'idle', 'technique', 'temple', 'easter', 'theft', 'tyre'] },
+    { name: 'U9 L2', words: ['profile', 'tourist', 'train', 'journey', 'fold', 'ultimately', 'beard', 'duration', 'underline', 'railway', 'deadline', 'underground', 'moderate', 'rate', 'vacation', 'coach', 'tear', 'occasion', 'traffic', 'lorry', 'tournament', 'treasure', 'headline', 'torture', 'outline', 'value', 'approximate', 'measure', 'training', 'close', 'navigate', 'bear', 'endure', 'sail', 'intimate', 'undo', 'trip', 'invaluable', 'ultimate', 'accelerate', 'wrinkle', 'exaggerate', 'valuable', 'tolerate', 'unfold', 'truck', 'hike', 'estimate', 'speed', 'wheel', 'undertake', 'excursion', 'vehicle', 'tour', 'voyage', 'evaluate'] },
+    { name: 'U9 L3', words: ['slim', 'patent', 'consume', 'fare', 'guess', 'split', 'client', 'step', 'purse', 'customer', 'slip', 'spit', 'presume', 'resort', 'custom', 'guest', 'customs', 'willing', 'pursue', 'welfare', 'pace', 'quiz', 'riddle', 'earn', 'slope', 'allow', 'contest', 'consumption', 'cliff', 'farewell', 'pension', 'windy', 'puzzle', 'accustomed', 'costume', 'recite', 'purchase', 'questionnaire', 'resume', 'slice', 'spill', 'volunteer', 'slide', 'assume', 'steep', 'detest', 'skip', 'protest', 'context', 'bonus', 'sort', 'wind', 'patience', 'afford', 'patient', 'allowance'] },
+    { name: 'U9 L4', words: ['tentative', 'submit', 'transmit', 'firm', 'miss', 'translate', 'emit', 'committee', 'breed', 'bid', 'champion', 'transform', 'tent', 'dismiss', 'perform', 'transparent', 'information', 'missile', 'uniform', 'educate', 'form', 'liberate', 'admit', 'casual', 'feed', 'inform', 'format', 'forbid', 'permit', 'deliberate', 'campaign', 'commitment', 'council', 'education', 'formal', 'campus', 'confirm', 'translation', 'commit', 'satisfy', 'reform', 'performance', 'slave', 'official', 'officer', 'transport', 'bureau', 'liberty', 'educator', 'labour', 'omit', 'transplant', 'platform', 'content', 'camp', 'satisfaction'] },
+    { name: 'U10 L1', words: ['injury', 'radio', 'elegant', 'assemble', 'injure', 'surgery', 'surgeon', 'trace', 'freeway', 'crossroads', 'physicist', 'laser', 'race', 'alternative', 'pull', 'highway', 'trail', 'likelihood', 'shine', 'studio', 'push', 'grace', 'physician', 'trick', 'treatment', 'across', 'radical', 'sunset', 'wayside', 'neat', 'shout', 'various', 'sunshine', 'float', 'vary', 'remedy', 'polish', 'dizzy', 'racial', 'cross', 'shift', 'tidy', 'drift', 'resemble', 'alike', 'treat', 'sunrise', 'glow', 'crossing', 'similar', 'variable', 'variety', 'hurt', 'track', 'radiate', 'swift', 'alter', 'radiation', 'physical', 'draft'] },
+    { name: 'U10 L2', words: ['external', 'adapt', 'manuscript', 'care', 'obscure', 'cure', 'dominate', 'detective', 'rescue', 'personal', 'kingdom', 'security', 'defence', 'lay', 'risk', 'internal', 'detect', 'prescribe', 'disgust', 'subscribe', 'lie', 'decay', 'safety', 'careful', 'rent', 'random', 'curious', 'ignore', 'protect', 'ownership', 'interior', 'desire', 'offend', 'boring', 'defend', 'digest', 'bored', 'domestic', 'exterior', 'currency', 'defeat', 'delay', 'endanger', 'describe', 'freedom', 'secure', 'careless', 'private', 'adoption', 'current', 'bore', 'accurate', 'umbrella', 'safe', 'dangerous', 'description', 'annoy', 'tedious', 'owe', 'adopt', 'bother', 'arbitrary'] },
+    { name: 'U10 L3', words: ['suburb', 'tissue', 'phenomenon', 'integrate', 'island', 'economical', 'county', 'integrity', 'confidential', 'title', 'straightforward', 'statue', 'motherland', 'branch', 'theme', 'national', 'automatic', 'scratch', 'mainland', 'urban', 'nationality', 'evolve', 'wrap', 'autonomous', 'rural', 'confidence', 'towel', 'state', 'vertical', 'ban', 'union', 'revolve', 'straight', 'frank', 'unite', 'economic', 'democratic', 'downtown', 'revolution', 'federal', 'village', 'status', 'tower', 'entitle', 'engine', 'inland', 'province', 'unit', 'discussion', 'involve', 'native', 'continent', 'economics', 'discuss', 'neighbourhood', 'snatch', 'engineer', 'democracy', 'topic', 'economy', 'motor', 'countryside', 'issue', 'expel', 'country'] },
+    { name: 'U10 L4', words: ['athlete', 'deny', 'subject', 'geometry', 'object', 'chemical', 'agriculture', 'continual', 'substance', 'enthusiasm', 'pessimistic', 'cube', 'subjective', 'biology', 'principle', 'romantic', 'biography', 'control', 'philosophy', 'experience', 'passion', 'distance', 'neglect', 'instant', 'confuse', 'arithmetic', 'available', 'distant', 'geology', 'exercise', 'passive', 'jog', 'refuse', 'negative', 'experiment', 'compassion', 'practical', 'substantial', 'stadium', 'chemist', 'gymnastics', 'reject', 'objective', 'confused', 'square', 'theory', 'chance', 'optimistic', 'practice', 'enthusiastic', 'opportunity', 'principal', 'chemistry', 'continuous', 'geography', 'psychology', 'gym', 'project', 'code', 'ecology', 'constant', 'neutral', 'punctual', 'discipline', 'sport'] },
+    { name: 'U11 L1', words: ['skin', 'thought', 'housework', 'leg', 'nurse', 'lucky', 'pleasant', 'beautiful', 'lovely', 'fisherman', 'tall', 'old', 'exam', 'farmer', 'grade', 'team', 'tooth', 'task', 'famous', 'policewoman', 'helpful', 'waist', 'luck', 'job', 'face', 'voice', 'neck', 'age', 'please', 'afraid', 'shy', 'sincerely', 'pretty', 'clever', 'glad', 'young', 'heart', 'homework', 'sorry', 'writer', 'lap', 'free', 'busy', 'happy', 'lawyer', 'eye', 'strong', 'bone', 'fat', 'lip', 'foot', 'muscle', 'policeman', 'pleasure', 'body', 'habit', 'stomach', 'popular', 'ear', 'group', 'hair', 'mouth', 'idea', 'household', 'daily', 'hard', 'nose', 'duty', 'bad', 'skill', 'honest', 'doctor', 'mind', 'head', 'beauty', 'dream', 'sad', 'police', 'strict', 'nice'] },
+    { name: 'U11 L2', words: ['difficulty', 'zero', 'civilian', 'calorie', 'communist', 'fool', 'sale', 'because', 'than', 'domain', 'example', 'fund', 'nowhere', 'programme', 'comic', 'adaptation', 'no', 'seem', 'mistake', 'gap', 'physics', 'pity', 'mode', 'factor', 'manner', 'lesson', 'if', 'moment', 'rating', 'musician', 'finding', 'god', 'distribution', 'cinema', 'opinion', 'problem', 'although', 'and', 'law', 'question', 'instance', 'message', 'everywhere', 'navy', 'per', 'but', 'variation', 'or', 'guideline', 'despite', 'mission', 'quality', 'competence', 'failure', 'pe', 'politician', 'socialist', 'politics', 'million', 'decision', 'method', 'gene', 'period', 'fulfil', 'number', 'crew', 'party', 'development', 'once', 'word', 'political', 'fact', 'plane', 'vocabulary', 'maths', 'name', 'not', 'be', 'ok', 'leadership'] },
+    { name: 'U11 L3', words: ['fond', 'ordinary', 'any', 'such', 'every', 'empty', 'elder', 'fun', 'way', 'dead', 'ship', 'thinking', 'surprise', 'interesting', 'likely', 'past', 'rather', 'correct', 'same', 'difficult', 'realistic', 'next', 'keen', 'great', 'result', 'funny', 'secret', 'science', 'real', 'saying', 'handsome', 'overall', 'row', 'further', 'pair', 'yes', 'much', 'everyday', 'missing', 'system', 'possible', 'true', 'used', 'sure', 'online', 'good', 'interest', 'probably', 'unusual', 'ideal', 'secretary', 'necessary', 'setting', 'elderly', 'last', 'easy', 'lean', 'winner', 'suggestion', 'quite', 'impossible', 'use', 'reason', 'cute', 'enough', 'scientific', 'sound', 'useful', 'full', 'round', 'electronic', 'scientist', 'secondary', 'ugly', 'polar', 'minor', 'least', 'search', 'shortage', 'whether'] },
+    { name: 'U11 L4', words: ['pass', 'ride', 'know', 'pardon', 'dance', 'lend', 'read', 'meet', 'love', 'fly', 'limited', 'enjoy', 'goodbye', 'send', 'hear', 'eat', 'sell', 'mount', 'help', 'plan', 'own', 'drive', 'ask', 'bring', 'keep', 'best', 'invite', 'put', 'cut', 'build', 'post', 'let', 'begin', 'give', 'kiss', 'learn', 'grow', 'call', 'drill', 'pick', 'hold', 'go', 'worst', 'like', 'happen', 'have', 'see', 'leap', 'better', 'sum', 'cite', 'hurry', 'several', 'listen', 'buy', 'burn', 'look', 'due', 'run', 'right', 'play', 'carry', 'get', 'sleepy', 'kick', 'cry', 'open', 'laugh', 'make', 'answer', 'worse', 'limit', 'jump', 'climb', 'believe', 'become', 'lock', 'borrow', 'join', 'wrong', 'whole'] },
+    { name: 'U12 L1', words: ['study', 'exist', 'order', 'forget', 'fall', 'matter', 'try', 'sleep', 'sit', 'spend', 'finish', 'understand', 'think', 'fill', 'enter', 'wake', 'wash', 'basket', 'box', 'waste', 'walk', 'bed', 'card', 'travel', 'set', 'shut', 'catch', 'thank', 'continue', 'turn', 'talk', 'say', 'suggest', 'touch', 'take', 'explain', 'decide', 'develop', 'lose', 'book', 'wish', 'kill', 'find', 'do', 'want', 'start', 'watch', 'worry', 'smile', 'show', 'prepare', 'throw', 'tell', 'stop', 'remember', 'write', 'smoke', 'repair', 'return', 'stay', 'mix', 'report', 'sing', 'repeat', 'welcome', 'leave', 'end', 'win', 'teach', 'wear', 'bike', 'speak', 'wait', 'notice', 'bag', 'fail', 'hatch', 'bottle', 'reach', 'stand'] },
+    { name: 'U12 L2', words: ['film', 'glass', 'cup', 'door', 'tool', 'email', 'herb', 'picture', 'panel', 'letter', 'diagram', 'news', 'window', 'new', 'photo', 'gold', 'taste', 'tape', 'ruler', 'software', 'page', 'ink', 'test', 'mobilephone', 'log', 'clock', 'market', 'rose', 'mail', 'pipe', 'street', 'desk', 'sofa', 'piece', 'disc', 'pen', 'spoon', 'gate', 'thing', 'schoolbag', 'ray', 'web', 'note', 'blog', 'gun', 'leaf', 'cotton', 'ring', 'stair', 'chalk', 'table', 'net', 'handbag', 'keyboard', 'phone', 'photographer', 'laptop', 'pan', 'deal', 'kit', 'notebook', 'toy', 'pencil', 'flower', 'newspaper', 'stamp', 'tree', 'text', 'fridge', 'key', 'crayon', 'map', 'story', 'wall', 'brochure', 'rule', 'paper', 'knife', 'nail', 'seat', 'wallet'] },
+    { name: 'U12 L3', words: ['cucumber', 'grape', 'spicy', 'pink', 'candy', 'white', 'skirt', 'blouse', 'pepper', 'cap', 'chicken', 'tomato', 'fruit', 'banana', 'meal', 'pear', 'tea', 'ingredient', 'trousers', 'hat', 'blue', 'acid', 'rice', 'saucer', 'coin', 'chocolate', 'cuisine', 'cake', 'beer', 'potato', 'egg', 'basketball', 'meat', 'vase', 'food', 'apple', 'bread', 'bacon', 'red', 'trunk', 'milk', 'sandwich', 'dinner', 'dark', 'porridge', 'tofu', 'shorts', 'yellow', 'wifi', 'pizza', 'ball', 'shirt', 'teapot', 'salad', 'cloth', 'sock', 'clothes', 'jacket', 'breakfast', 'sauce', 'lunch', 'black', 'computer', 'coffee', 'ham', 'vegetable', 'pancake', 'dress', 'colour', 'car', 'hamburger', 'tshirt', 'coat', 'fork', 'shoe', 'green', 'lemon', 'stone', 'icecream', 'ice', 'water', 'pudding', 'orange', 'brown', 'pants', 'sausage', 'bus'] },
+    { name: 'U12 L4', words: ['lunar', 'portrait', 'noon', 'summer', 'whenever', 'kitchen', 'future', 'nowadays', 'while', 'turkey', 'protein', 'ill', 'day', 'oclock', 'winter', 'bce', 'evening', 'early', 'autumn', 'holiday', 'hour', 'weekly', 'until', 'ago', 'pm', 'perspective', 'death', 'half', 'am', 'yoghurt', 'when', 'afternoon', 'minute', 'unless', 'danger', 'illness', 'since', 'night', 'sick', 'tomorrow', 'eve', 'tonight', 'today', 'die', 'sore', 'ad', 'weekend', 'yesterday', 'month', 'quarter', 'birthday', 'christmas', 'corn', 'ce', 'now', 'xray', 'sneeze', 'disease', 'born', 'lifestyle', 'time', 'health', 'weekday', 'birth', 'healthy', 'monthly', 'week', 'smell', 'morning', 'rejuvenate', 'wetland', 'year', 'late', 'fever', 'patriotism', 'midnight', 'spring', 'life', 'sometimes'] },
+    { name: 'U13 L1', words: ['boy', 'person', 'collaborate', 'sir', 'man', 'granddaughter', 'grandson', 'twin', 'introduce', 'alert', 'friendship', 'cousin', 'baby', 'teenage', 'pupil', 'ms', 'child', 'woman', 'girl', 'craft', 'charm', 'curve', 'friendly', 'dear', 'gender', 'grandparent', 'hi', 'father', 'worker', 'hero', 'soldier', 'king', 'bully', 'marry', 'hello', 'mr', 'lady', 'introduction', 'membership', 'neighbour', 'uncle', 'student', 'parent', 'mrs', 'sex', 'dedicate', 'kid', 'personality', 'bedroom', 'speaker', 'husband', 'brother', 'grandfather', 'classmate', 'teacher', 'wife', 'confucianism', 'son', 'gentleman', 'feeling', 'public', 'friend', 'meeting', 'sister', 'player', 'boss', 'confucius', 'family', 'feel', 'grandmother', 'endangered', 'aunt', 'drone', 'mother', 'empathy', 'eliminate', 'people', 'madam', 'bias', 'member', 'driver', 'daughter'] },
+    { name: 'U13 L2', words: ['river', 'exit', 'legend', 'pub', 'university', 'exceed', 'college', 'house', 'port', 'housing', 'space', 'migration', 'bridge', 'ward', 'ocean', 'tone', 'prison', 'hotel', 'lake', 'roof', 'fable', 'faint', 'ethnic', 'hole', 'session', 'strait', 'floor', 'wood', 'language', 'music', 'grammar', 'role', 'guitar', 'club', 'greenhouse', 'corner', 'home', 'classroom', 'bank', 'ethical', 'road', 'garden', 'paragraph', 'school', 'office', 'historic', 'fireman', 'room', 'hill', 'ground', 'literally', 'song', 'fascinating', 'line', 'place', 'theatre', 'culture', 'forest', 'farm', 'museum', 'poetry', 'path', 'hospital', 'caf', 'arch', 'town', 'washroom', 'piano', 'violin', 'playground', 'idiom', 'hometown', 'station', 'movie', 'calligraphy', 'pool', 'game', 'history', 'rhyme', 'shop', 'horror', 'chorus'] },
+    { name: 'U13 L3', words: ['ton', 'swim', 'match', 'quiet', 'football', 'swimming', 'sudden', 'pocket', 'lower', 'short', 'transfer', 'boxing', 'taxi', 'thin', 'transition', 'noise', 'golf', 'quick', 'oven', 'size', 'far', 'dollar', 'heavy', 'kilometre', 'lot', 'rapid', 'rugby', 'save', 'soccer', 'empress', 'long', 'pound', 'kilo', 'rich', 'pollution', 'little', 'fast', 'olympic', 'twice', 'prince', 'mile', 'subway', 'large', 'metre', 'spacecraft', 'pollute', 'dirty', 'tunnel', 'low', 'more', 'lost', 'star', 'loud', 'pyramid', 'pingpong', 'princess', 'saving', 'huge', 'tube', 'marathon', 'gramme', 'noisy', 'slow', 'poor', 'mutual', 'money', 'most', 'high', 'giant', 'rhythm', 'tennis', 'volleyball', 'concert', 'big', 'small', 'rival', 'few', 'inch', 'modify', 'plenty', 'modernisation', 'less', 'obey', 'kungfu', 'supplement', 'millimetre', 'thick'] },
+    { name: 'U14 L1', words: ['world', 'animal', 'germany', 'english', 'land', 'africa', 'liberation', 'frog', 'dolphin', 'hen', 'lion', 'elephant', 'bug', 'asia', 'horse', 'french', 'government', 'asian', 'overseas', 'african', 'australia', 'atlantic', 'bee', 'cat', 'penguin', 'zoo', 'republic', 'duck', 'fish', 'monkey', 'ant', 'city', 'china', 'japan', 'russian', 'england', 'rabbit', 'panda', 'german', 'fox', 'australian', 'russia', 'india', 'air', 'population', 'american', 'european', 'europe', 'pet', 'london', 'livestock', 'arctic', 'wolf', 'war', 'pig', 'nation', 'dog', 'japanese', 'indian', 'foreign', 'snake', 'goat', 'bird', 'tiger', 'france', 'chinese', 'britain', 'antarctica', 'british', 'canadian', 'canada', 'deer', 'sheep', 'america', 'cow', 'uk'] },
+    { name: 'U14 L2', words: ['by', 'through', 'sky', 'about', 'warm', 'moreover', 'never', 'with', 'off', 'away', 'maybe', 'frame', 'hardly', 'just', 'as', 'sun', 'elsewhere', 'snowy', 'at', 'again', 'heat', 'after', 'moon', 'only', 'hence', 'against', 'of', 'mist', 'temperature', 'throughout', 'magnificent', 'during', 'smog', 'sunny', 'upon', 'forever', 'rainbow', 'soon', 'without', 'towards', 'hot', 'before', 'already', 'oil', 'cloud', 'on', 'final', 'fertile', 'bin', 'among', 'cold', 'weather', 'from', 'snow', 'seldom', 'season', 'in', 'else', 'always', 'radium', 'cloudy', 'equator', 'to', 'furthermore', 'finally', 'often', 'also', 'cool', 'rainy', 'rain', 'almost', 'for', 'hybrid', 'mostly', 'hydrogen'] },
+    { name: 'U14 L3', words: ['within', 'into', 'left', 'still', 'anywhere', 'over', 'middle', 'marine', 'aside', 'beside', 'down', 'each', 'side', 'up', 'out', 'inner', 'pagoda', 'near', 'north', 'front', 'mystery', 'somewhat', 'eastern', 'metaphor', 'below', 'onto', 'between', 'here', 'anyhow', 'under', 'western', 'myth', 'so', 'behind', 'too', 'south', 'why', 'though', 'outside', 'therefore', 'southern', 'even', 'where', 'perhaps', 'besides', 'very', 'alongside', 'somewhere', 'either', 'nor', 'then', 'ever', 'east', 'however', 'along', 'anyway', 'back', 'how', 'well', 'nearly', 'west', 'around', 'northern', 'inside', 'there', 'yet', 'pile', 'nearby', 'instead', 'really', 'thus', 'slightly', 'somehow', 'above'] },
+    { name: 'U14 L4', words: ['dare', 'whom', 'tropical', 'which', 'oughtto', 'his', 'some', 'anybody', 'nobody', 'something', 'nothing', 'may', 'other', 'theirs', 'myself', 'those', 'whose', 'whatever', 'both', 'ours', 'yours', 'them', 'ourselves', 'itself', 'many', 'will', 'its', 'neither', 'anyone', 'anything', 'these', 'himself', 'you', 'this', 'the', 'me', 'your', 'their', 'need', 'my', 'everyone', 'she', 'another', 'shall', 'all', 'none', 'our', 'shell', 'should', 'him', 'who', 'what', 'we', 'someone', 'everybody', 'could', 'would', 'it', 'somebody', 'us', 'they', 'must', 'can', 'everything', 'yourself', 'might', 'herself', 'themselves', 'hers', 'that', 'he', 'her'] }
+  ];
 
   var BI = Object.create(null);   // 双字模型：前一个字 -> { 后一个字: 次数 }
   var UNI = Object.create(null);  // 单字频率
@@ -1253,6 +1536,8 @@
   var elGrade    = $('#lbl-grade');
   var elVocabRow = $('#lbl-vocab');
   var elVocabN   = $('#s-vocab');
+  var elVocabTag = $('#s-vocab-tag');
+  var elSource   = $('#source-select');
   var elHintKeys = $('#hint-keys');
   var elGloss    = $('#gloss');
   var elGlossCn  = $('#gloss-cn');
@@ -1261,6 +1546,8 @@
   /* ================= 状态 ================= */
   var state = {
     mode: 'vocab',   // 'vocab' 高考3500 / 'letters' 字母渐进
+    lesson: null,    // 选中的课程下标（null = 全部词表）
+    pool: null,      // 当前取词的池子
     level: START_LEVEL,
     alphabet: '',
     allow: null,
@@ -1399,14 +1686,16 @@
     return out;
   }
 
-  // 高考词库：整表随机，避开最近 12 个词，避免一行里来回重复
+  // 词库：从当前词库/课程里随机取，避开最近 12 个词，避免一行里来回重复
   function genVocab() {
-    var n = VOCAB.length, i, w;
+    var pool = state.pool && state.pool.length ? state.pool : VOCAB;
+    var n = pool.length, i, w;
+    if (!n) return '';
     for (i = 0; i < 40; i++) {
-      w = VOCAB[(Math.random() * n) | 0];
+      w = pool[(Math.random() * n) | 0];
       if (isFresh(w)) { remember(w); return w; }
     }
-    w = VOCAB[(Math.random() * n) | 0];
+    w = pool[(Math.random() * n) | 0];
     remember(w);
     return w;
   }
@@ -1690,11 +1979,12 @@
     return word.split('').join('. ') + '.';
   }
 
-  // 释义里的 "n." "vt." "ad." 这类词性标记（可能出现在句中）不念，只念中文
+  // 释义里只念中文：去掉 n. / vt. / adj. 这类词性，以及 & / 等符号
   function cnSpeechText(m) {
     var s = String(m || '');
-    s = s.replace(/\b(?:n|v|vt|vi|adj|adv|ad|prep|conj|pron|art|num|int|aux|pl|abbr)\.\s*/gi, ' ');
-    s = s.replace(/…+$/, '').replace(/\s+/g, '').trim();
+    s = s.replace(/[a-zA-Z]+\./g, ' ');                                    // 词性标记
+    s = s.replace(/[^\u4e00-\u9fa5（）【】、，。；：？！—·]/g, ' ');        // 只留中文和中文标点
+    s = s.replace(/\s+/g, '');
     return /[\u4e00-\u9fa5]/.test(s) ? s : '';
   }
 
@@ -1834,13 +2124,18 @@
     var vocab = state.mode === 'vocab';
     stopSpeaking();
 
+    var lesson = (vocab && state.lesson != null && LESSONS[state.lesson]) ? LESSONS[state.lesson] : null;
+    state.pool = lesson ? lesson.words : VOCAB;
+
     state.alphabet = vocab ? ALL_LETTERS : LETTER_ORDER.slice(0, state.level).join('');
     state.allow = new Set(state.alphabet.split(''));
     refreshRealWords();
     recent.length = 0;
 
+    var label = lesson ? lesson.name : '全部词表';
     elLevel.textContent = String(state.level);
-    elVocabN.textContent = String(VOCAB.length);
+    elVocabN.textContent = String(state.pool.length);
+    elVocabTag.textContent = label;
     elGrade.hidden = vocab;
     elVocabRow.hidden = !vocab;
     elBar.style.width = Math.min(100, (state.level / LETTER_ORDER.length) * 100) + '%';
@@ -1850,7 +2145,7 @@
     paintKeyboardLocks();
     renderLetters();
     elHintKeys.textContent = vocab
-      ? '高考3500 · ' + VOCAB.length + ' 词 · 全键盘'
+      ? (lesson ? lesson.name + ' · ' : '全部词表 · ') + state.pool.length + ' 词 · 全键盘'
       : '当前只练 ' + state.alphabet.split('').join(' ');
     updateGloss();
   }
@@ -1864,6 +2159,57 @@
       d.textContent = ch;
       elLetters.appendChild(d);
     });
+  }
+
+  /* ================= 词库下拉 ================= */
+  function sourceValue() {
+    if (state.mode === 'letters') return 'letters';
+    return state.lesson != null ? ('L' + state.lesson) : 'all';
+  }
+
+  function syncSourceValue() {
+    var v = sourceValue();
+    if (elSource.value !== v) elSource.value = v;
+  }
+
+  function buildSourceSelect() {
+    elSource.innerHTML = '';
+
+    var all = document.createElement('option');
+    all.value = 'all';
+    all.textContent = '全部词表 · ' + VOCAB.length + ' 词';
+    elSource.appendChild(all);
+
+    var curGroup = null, groupEl = null;
+    for (var i = 0; i < LESSONS.length; i++) {
+      var nm = LESSONS[i].name;
+      var gm = /^U\d+/.exec(nm);
+      var gname = gm ? gm[0] : '其它';
+      if (gname !== curGroup) {
+        curGroup = gname;
+        groupEl = document.createElement('optgroup');
+        groupEl.label = gname;
+        elSource.appendChild(groupEl);
+      }
+      var o = document.createElement('option');
+      o.value = 'L' + i;
+      o.textContent = nm + ' · ' + LESSONS[i].words.length + ' 词';
+      groupEl.appendChild(o);
+    }
+
+    var letters = document.createElement('option');
+    letters.value = 'letters';
+    letters.textContent = '字母渐进（keybr 模式）';
+    elSource.appendChild(letters);
+
+    if (!LESSONS.length) {
+      var tip = document.createElement('option');
+      tip.disabled = true;
+      tip.textContent = '— 刘晓艳课程：待导入词表 —';
+      elSource.appendChild(tip);
+    }
+
+    syncSourceValue();
   }
 
   function maybeUnlock() {
@@ -2022,6 +2368,7 @@
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
         mode: state.mode,
+        lesson: state.lesson,
         level: state.level,
         best: Math.round(state.best),
         settings: state.settings
@@ -2035,6 +2382,11 @@
       if (!raw) return;
       var d = JSON.parse(raw);
       if (d.mode === 'vocab' || d.mode === 'letters') state.mode = d.mode;
+      if (typeof d.lesson === 'number' && d.lesson >= 0 && d.lesson < LESSONS.length) {
+        state.lesson = d.lesson;
+      } else {
+        state.lesson = null;
+      }
       if (typeof d.level === 'number' && d.level >= 1 && d.level <= LETTER_ORDER.length) {
         state.level = d.level;
       }
@@ -2053,9 +2405,7 @@
 
   /* ================= 设置按钮 ================= */
   function syncTools() {
-    var bm = $('#btn-mode');
-    bm.classList.toggle('on', state.mode === 'vocab');
-    bm.textContent = '词库 ' + (state.mode === 'vocab' ? '高考3500' : '字母渐进');
+    syncSourceValue();
 
     var bg = $('#btn-gloss');
     bg.classList.toggle('on', state.settings.gloss);
@@ -2080,16 +2430,22 @@
   }
 
   function bindTools() {
-    $('#btn-mode').addEventListener('click', function (e) {
-      e.currentTarget.blur();
-      state.mode = state.mode === 'vocab' ? 'letters' : 'vocab';
+    elSource.addEventListener('change', function () {
+      var id = elSource.value;
+      if (id === 'letters') {
+        state.mode = 'letters'; state.lesson = null;
+      } else if (id === 'all' || id.indexOf('L') !== 0) {
+        state.mode = 'vocab'; state.lesson = null;
+      } else {
+        state.mode = 'vocab'; state.lesson = parseInt(id.slice(1), 10);
+      }
       applyMode();
       restart();          // 立刻按新词库重排文本
       syncTools();
       save();
-      toast(state.mode === 'vocab'
-        ? '词库：高考 3500（' + VOCAB.length + ' 词）'
-        : '词库：字母渐进（起手 8 键）');
+      elSource.blur();
+      var opt = elSource.options[elSource.selectedIndex];
+      toast('词库：' + (opt ? opt.textContent : id));
     });
     $('#btn-gloss').addEventListener('click', function (e) {
       state.settings.gloss = !state.settings.gloss;
@@ -2161,6 +2517,7 @@
   function init() {
     load();
     buildKeyboard();
+    buildSourceSelect();
     setLevel(state.level);
     syncTools();
     bindTools();
